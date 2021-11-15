@@ -1,14 +1,20 @@
 #include <Windows.h>
 #include <tchar.h>
+#include <DirectXMath.h>
+#include <DirectXTex.h>
 
 #pragma comment( lib, "d3d12.lib" )
 #pragma comment( lib, "dxgi.lib" )
+#pragma comment( lib, "d3dcompiler.lib" )
+#pragma comment( lib, "DirectXTex.lib")
 
 #ifdef _DEBUG
 #include <iostream>
 #endif
 
 #include "AppManager.hpp"
+#include "VertexBuffer.hpp"
+#include "IndexBuffer.hpp"
 
 using namespace std;
 
@@ -80,16 +86,44 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 #ifdef _DEBUG
     GraphicEngine::EnableDebugLayer();
 #endif
-    GraphicEngine::Initialize(hwnd);
+    if (!GraphicEngine::Initialize(hwnd)) {
+        return 1;
+    }
+    GraphicEngine::Instance().SetViewPort();
 
 
     MSG msg = {};
+    Vertex vertices[] =
+    {
+        {{-0.4f, -0.7f, 0.0f}, {0.0f, 1.0f}},   // 左下
+        {{-0.4f,  0.7f, 0.0f}, {0.0f, 0.0f}},   // 左上
+        {{ 0.4f, -0.7f, 0.0f}, {1.0f, 1.0f}},   // 右下
+        {{ 0.4f,  0.7f, 0.0f}, {1.0f, 0.0f}},   // 右上
+    };
+    uint16_t incides[] =
+    {
+        0, 1, 2,
+        2, 1, 3
+    };
+
+    VertexBufferPtr vertbuff = std::make_shared<VertexBuffer>();
+    if (!vertbuff->CreateVertexBuffer(vertices, 4)) {
+        return 1;
+    }
+    IndexBufferPtr idxbuff = std::make_shared<IndexBuffer>();
+    if (!idxbuff->CreateIndexBuffer(incides, 6)) {
+        return 1;
+    }
+
+    GraphicEngine::Instance().SetVertexBuffer(vertbuff);
+    GraphicEngine::Instance().SetIndexBuffer(idxbuff);
 
     while (1) {
         if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
+
         GraphicEngine::Instance().FlipWindow();
 
         // アプリケーションが終わるときに message が WM_QUIT になる
