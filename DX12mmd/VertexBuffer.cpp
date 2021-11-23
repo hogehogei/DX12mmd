@@ -1,3 +1,4 @@
+#include "d3dx12.h"
 
 #include "VertexBuffer.hpp"
 #include "AppManager.hpp"
@@ -11,30 +12,14 @@ VertexBuffer::VertexBuffer()
 bool VertexBuffer::CreateVertexBuffer(Vertex* vertices, size_t count)
 {
     ID3D12Device* device = GraphicEngine::Instance().Device();
-    D3D12_HEAP_PROPERTIES heapprop{};
 
-    heapprop.Type = D3D12_HEAP_TYPE_UPLOAD;
-    heapprop.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-    heapprop.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-
-    D3D12_RESOURCE_DESC resdesc{};
-
-    resdesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    // 頂点情報が入るだけのサイズを指定
-    resdesc.Width = static_cast<UINT64>(sizeof(Vertex)) * count;
-    // 幅で表現するので1とする
-    resdesc.Height = 1;
-    resdesc.DepthOrArraySize = 1;
-    resdesc.MipLevels = 1;
-    resdesc.Format = DXGI_FORMAT_UNKNOWN;
-    resdesc.SampleDesc.Count = 1;
-    resdesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resdesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    auto heap_prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+    auto res_desc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(Vertex) * count);
 
     auto result = device->CreateCommittedResource(
-        &heapprop,
+        &heap_prop,
         D3D12_HEAP_FLAG_NONE,
-        &resdesc,
+        &res_desc,
         D3D12_RESOURCE_STATE_GENERIC_READ,
         nullptr,
         IID_PPV_ARGS(&m_VertBuff)

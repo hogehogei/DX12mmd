@@ -2,22 +2,21 @@
 
 #include "Texture.hpp"
 #include "AppManager.hpp"
+#include "Resource.hpp"
 #include "Utility.hpp"
 
 
 TextureGroup::TextureGroup()
     :
-    m_TexDescHeap(nullptr),
-    m_Textures(),
-    m_RootParam(),
-    m_DescRange(),
-    m_Sampler()
+    m_ShaderResource( nullptr )
 {}
 
-bool TextureGroup::CreateTextures(const wchar_t* filename)
+bool TextureGroup::CreateTextures(ResourceManager* shader_resource, const wchar_t* filename, TextureHandle* handle)
 {
     TexMetadata metadata{};
     ScratchImage scratch_img{};
+
+    m_ShaderResource = shader_resource;
 
     auto result = LoadFromWICFile(filename, WIC_FLAGS_NONE, &metadata, scratch_img);
     if (result != S_OK) {
@@ -37,9 +36,6 @@ bool TextureGroup::CreateTextures(const wchar_t* filename)
         img->pixels,
         static_cast<D3D12_RESOURCE_DIMENSION>(metadata.dimension)
     };
-
-    CreateRootParameter();
-    CreateSampler();
 #if 0
     ImageFmt image = {
         256,
@@ -64,82 +60,38 @@ bool TextureGroup::CreateTextures(const wchar_t* filename)
     image.Pixels = reinterpret_cast<uint8_t*>(m_TextureData.data());
 #endif
 
+    auto texture = std::make_shared<Texture>();
+    m_Textures.push_back(texture);
+    texture->Create(image_fmt, this);
+
+    *handle = m_Textures.size() - 1;
+
+    return true;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE TextureGroup::TextureDescriptorHeapCPU(TextureHandle handle)
+{
+    assert(handle != Texture::k_InvalidHandle);
+    return m_ShaderResource->TextureDescriptorHeapCPU(handle);
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE TextureGroup::TextureDescriptorHeapGPU(TextureHandle handle)
+{
+    assert(handle != Texture::k_InvalidHandle);
+    return m_ShaderResource->TextureDescriptorHeapGPU(handle);
+}
 
 
-
-    if (!CreateDescriptorHeap()) {
-        return false;
+TextureHandle TextureGroup::GetTextureHandle(Texture* texptr)
+{  
+    for (size_t i = 0; i < m_Textures.size(); ++i) {
+        if (m_Textures[i].get() == texptr) {
+            return i;
+        }
     }
 
-    m_Textures.push_back(std::make_shared<Texture>());
-    return m_Textures[0]->Create(image_fmt, this);
+    return Texture::k_InvalidHandle;
 }
-
-ID3D12DescriptorHeap* TextureGroup::TextureDescriptorHeap()
-{
-    return m_TexDescHeap;
-}
-
-D3D12_ROOT_PARAMETER* TextureGroup::RootParameter()
-{
-    return &m_RootParam;
-}
-
-D3D12_STATIC_SAMPLER_DESC* TextureGroup::SamplerDescriptor()
-{
-    return &m_Sampler;
-}
-
-bool TextureGroup::CreateDescriptorHeap()
-{
-    D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
-
-    // シェーダーから見えるように
-    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    // マスクは0
-    heap_desc.NodeMask = 0;
-    // ビューは今のところ1つ
-    heap_desc.NumDescriptors = 1;
-    // シェーダーリソースビュー用
-    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-
-    auto result = GraphicEngine::Instance().Device()->CreateDescriptorHeap(
-        &heap_desc,
-        IID_PPV_ARGS(&m_TexDescHeap)
-    );
-
-    return result == S_OK;
-}
-
-void TextureGroup::CreateRootParameter()
-{
-    m_DescRange.NumDescriptors = 1;         // テクスチャ数
-    m_DescRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    m_DescRange.BaseShaderRegister = 0;     // 0番スロットから
-    m_DescRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-    m_RootParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    // ピクセルシェーダから見える
-    m_RootParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    m_RootParam.DescriptorTable.pDescriptorRanges = &m_DescRange;
-    m_RootParam.DescriptorTable.NumDescriptorRanges = 1;
-}
-
-void TextureGroup::CreateSampler()
-{
-    // 繰り返し
-    m_Sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    m_Sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    m_Sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-
-    m_Sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;    // ボーダーは黒
-    m_Sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;                     // 線形補間は黒
-    m_Sampler.MaxLOD = D3D12_FLOAT32_MAX;       // ミップマップ最大値
-    m_Sampler.MinLOD = 0.0f;                    // ミップマップ最小値
-    m_Sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;             // ピクセルシェーダから見える
-    m_Sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;                 // リサンプリングしない
-}
-
 
 Texture::Texture()
     :
@@ -309,8 +261,6 @@ ID3D12Resource* Texture::CreateTextureBuffer(const ImageFmt& image)
     return texbuff;
 }
 
-
-
 void Texture::CreateShaderResourceView()
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc{};
@@ -320,9 +270,10 @@ void Texture::CreateShaderResourceView()
     srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv_desc.Texture2D.MipLevels = 1;                   // ミップマップは使用しないので1
 
+    auto handle = m_Resource->GetTextureHandle(this);
     GraphicEngine::Instance().Device()->CreateShaderResourceView(
         m_TexBuff,
         &srv_desc,
-        m_Resource->TextureDescriptorHeap()->GetCPUDescriptorHandleForHeapStart()
+        m_Resource->TextureDescriptorHeapCPU(handle)
     );
 }

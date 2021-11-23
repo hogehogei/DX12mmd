@@ -13,6 +13,7 @@
 #endif
 
 #include "AppManager.hpp"
+#include "Resource.hpp"
 #include "VertexBuffer.hpp"
 #include "IndexBuffer.hpp"
 
@@ -95,10 +96,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     MSG msg = {};
     Vertex vertices[] =
     {
-        {{-0.4f, -0.7f, 0.0f}, {0.0f, 1.0f}},   // 左下
-        {{-0.4f,  0.7f, 0.0f}, {0.0f, 0.0f}},   // 左上
-        {{ 0.4f, -0.7f, 0.0f}, {1.0f, 1.0f}},   // 右下
-        {{ 0.4f,  0.7f, 0.0f}, {1.0f, 0.0f}},   // 右上
+        {{ 0.0f,   100.0f, 0.0f}, {0.0f, 1.0f}},   // 左下
+        {{ 0.0f,     0.0f, 0.0f}, {0.0f, 0.0f}},   // 左上
+        {{ 100.0f, 100.0f, 0.0f}, {1.0f, 1.0f}},   // 右下
+        {{ 100.0f,   0.0f, 0.0f}, {1.0f, 0.0f}},   // 右上
     };
     uint16_t incides[] =
     {
@@ -117,6 +118,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     GraphicEngine::Instance().SetVertexBuffer(vertbuff);
     GraphicEngine::Instance().SetIndexBuffer(idxbuff);
+
 
     while (1) {
         if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {

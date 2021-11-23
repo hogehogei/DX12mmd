@@ -1,5 +1,6 @@
 #include "AppManager.hpp"
 #include "Shader.hpp"
+#include "Resource.hpp"
 
 #include <vector>
 #include <wrl/client.h>
@@ -29,7 +30,11 @@ GraphicEngine::GraphicEngine()
     m_ViewPort(),
     m_ScissorRect(),
     m_VertBuff(),
-    m_IdxBuff()
+    m_IdxBuff(),
+    m_ConstBuff(),
+    m_Resource(),
+    m_Textures(),
+    m_TextureHandle(0)
 {}
 
 bool GraphicEngine::Initialize( HWND hwnd )
@@ -127,11 +132,15 @@ void GraphicEngine::FlipWindow()
     m_CmdList->RSSetScissorRects(1, &m_ScissorRect);
 
     m_CmdList->SetGraphicsRootSignature(m_RootSignature);
-    auto descriptor_heap = m_Textures.TextureDescriptorHeap();
+    auto descriptor_heap = m_Resource.DescriptorHeap();
     m_CmdList->SetDescriptorHeaps(1, &descriptor_heap);
     m_CmdList->SetGraphicsRootDescriptorTable(
-        0,
-        descriptor_heap->GetGPUDescriptorHandleForHeapStart()
+        m_Resource.TextureRootParameterID(),
+        m_Textures.TextureDescriptorHeapGPU(m_TextureHandle)
+    );
+    m_CmdList->SetGraphicsRootDescriptorTable(
+        m_Resource.ConstantRootParameterID(),
+        m_Resource.ConstantDescriptorHeapGPU(0)
     );
     
     m_CmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -220,9 +229,23 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
         return false;
     }
 
-    if (!m_Textures.CreateTextures(L"img/textest.png")) {
+    if (!m_Resource.Initialize(1, 1)) {
         return false;
     }
+
+    if (!m_Textures.CreateTextures(&m_Resource, L"img/textest.png", &m_TextureHandle)) {
+        return false;
+    }
+
+    m_Matrix = XMMatrixIdentity();
+    if (!m_ConstBuff.Create(&m_Resource, sizeof(XMMATRIX), 0)) {
+        return false;
+    }
+    m_Matrix.r[0].m128_f32[0] = 2.0f / k_WindowWidth;
+    m_Matrix.r[1].m128_f32[1] = -2.0f / k_WindowHeight;
+    m_Matrix.r[3].m128_f32[0] = -1.0f;
+    m_Matrix.r[3].m128_f32[1] = 1.0f;
+    m_ConstBuff.Write(&m_Matrix, sizeof(m_Matrix));
 
     if (!CreateGraphicPipeLine()) {
         return false;
@@ -399,10 +422,10 @@ bool GraphicEngine::CreateRootSignature( ID3D12RootSignature** rootsignature )
     D3D12_ROOT_SIGNATURE_DESC rootsig_desc{};
     rootsig_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     
-    rootsig_desc.pParameters = m_Textures.RootParameter();
-    rootsig_desc.NumParameters = 1;
+    rootsig_desc.pParameters = m_Resource.RootParameter();
+    rootsig_desc.NumParameters = m_Resource.RootParameterSize();
 
-    rootsig_desc.pStaticSamplers = m_Textures.SamplerDescriptor();
+    rootsig_desc.pStaticSamplers = m_Resource.SamplerDescriptor();
     rootsig_desc.NumStaticSamplers = 1;
 
     ComPtr<ID3DBlob> rootsig_blob = nullptr;

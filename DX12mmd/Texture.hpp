@@ -2,8 +2,11 @@
 
 #include <cstdint>
 #include <memory>
+#include <limits>
 #include <vector>
 #include <d3d12.h>
+
+#include "Resource.hpp"
 
 struct ImageFmt
 {
@@ -12,8 +15,8 @@ struct ImageFmt
     size_t RowPitchByte;
     size_t Size;
     size_t Depth;
-    uint16_t ArraySize;
-    uint16_t MipLevels;
+    size_t ArraySize;
+    size_t MipLevels;
     DXGI_FORMAT Format;
     uint8_t* Pixels;
     D3D12_RESOURCE_DIMENSION Dimension;
@@ -26,6 +29,8 @@ struct TexRGBA
 
 class Texture;
 using TexturePtr = std::shared_ptr<Texture>;
+using TextureHandle = uint32_t;
+
 class TextureGroup
 {
 public:
@@ -34,29 +39,24 @@ public:
     TextureGroup(TextureGroup&) = delete;
     TextureGroup& operator=(TextureGroup&) = delete;
 
-    bool CreateTextures(const wchar_t* filename);
+    bool CreateTextures(ResourceManager* shader_resource, const wchar_t* filename, TextureHandle* handle);
+    
+    D3D12_CPU_DESCRIPTOR_HANDLE TextureDescriptorHeapCPU(TextureHandle handle);
+    D3D12_GPU_DESCRIPTOR_HANDLE TextureDescriptorHeapGPU(TextureHandle handle);
 
-    ID3D12DescriptorHeap* TextureDescriptorHeap();
-    D3D12_ROOT_PARAMETER* RootParameter();
-    D3D12_STATIC_SAMPLER_DESC* SamplerDescriptor();
+    TextureHandle GetTextureHandle(Texture* texptr);
 
 private:
 
-    bool CreateDescriptorHeap();
-    void CreateRootParameter();
-    void CreateSampler();
-
-    std::vector<TexRGBA> m_TextureData;
+    ResourceManager* m_ShaderResource;
     std::vector<TexturePtr> m_Textures;
-    ID3D12DescriptorHeap* m_TexDescHeap;
-    D3D12_ROOT_PARAMETER m_RootParam;
-    D3D12_DESCRIPTOR_RANGE m_DescRange;
-    D3D12_STATIC_SAMPLER_DESC m_Sampler;
 };
 
 class Texture
 {
 public:
+
+    static constexpr TextureHandle k_InvalidHandle = 0xFFFFFFFF;
 
     Texture();
     Texture(Texture&) = delete;

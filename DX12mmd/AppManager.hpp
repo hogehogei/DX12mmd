@@ -8,7 +8,9 @@
 #include "Shader.hpp"
 #include "VertexBuffer.hpp"
 #include "IndexBuffer.hpp"
+#include "ConstantBuffer.hpp"
 #include "Texture.hpp"
+#include "Resource.hpp"
 
 class GraphicEngine
 {
@@ -67,6 +69,11 @@ private:
     D3D12_RECT m_ScissorRect;
     VertexBufferPtr m_VertBuff;
     IndexBufferPtr m_IdxBuff;
+    ConstantBuffer m_ConstBuff;
 
+    XMMATRIX m_Matrix;
+
+    ResourceManager m_Resource;
     TextureGroup m_Textures;
+    TextureHandle m_TextureHandle;
 };
