@@ -9,7 +9,7 @@ ConstantBuffer::ConstantBuffer()
     m_Resource(nullptr)
 {}
 
-bool ConstantBuffer::Create(ResourceManager* resource_manager, uint32_t buffer_size, uint32_t desc_id)
+bool ConstantBuffer::Create(ResourceManager* resource_manager, uint32_t buffer_size, const ResourceDescHandle& const_resource_desc_handle)
 {
     m_Resource = resource_manager;
 
@@ -32,7 +32,7 @@ bool ConstantBuffer::Create(ResourceManager* resource_manager, uint32_t buffer_s
 
     device->CreateConstantBufferView(
         &cbv_desc,
-        m_Resource->ConstantDescriptorHeapCPU(desc_id)
+        m_Resource->DescriptorHeapCPU(const_resource_desc_handle)
     );
 
     return true;

@@ -14,7 +14,7 @@ size_t IndexBuffer::Count() const
     return m_IdxCount;
 }
 
-bool IndexBuffer::CreateIndexBuffer(uint16_t* indices, size_t count)
+bool IndexBuffer::CreateIndexBuffer(const uint16_t* indices, size_t count)
 {
     if (count == 0) {
         return false;
@@ -72,6 +72,12 @@ bool IndexBuffer::CreateIndexBuffer(uint16_t* indices, size_t count)
     m_IdxCount = count;
 
     return true;
+}
+
+bool IndexBuffer::CreateIndexBuffer(const PMDData& pmd)
+{
+    const uint16_t* ptr = reinterpret_cast<const uint16_t*>(pmd.IndexData());
+    return this->CreateIndexBuffer(ptr, pmd.IndexNum());
 }
 
 D3D12_INDEX_BUFFER_VIEW IndexBuffer::GetIndexBufferView() const

@@ -11,8 +11,17 @@ TextureGroup::TextureGroup()
     m_ShaderResource( nullptr )
 {}
 
-bool TextureGroup::CreateTextures(ResourceManager* shader_resource, const wchar_t* filename, TextureHandle* handle)
+bool TextureGroup::CreateTextures(
+    ResourceManager* shader_resource, 
+    const ResourceDescHandle& shader_resource_desc_handle,
+    const wchar_t* filename, 
+    TextureHandle* handle
+)
 {
+    if (!shader_resource_desc_handle) {
+        return false;
+    }
+
     TexMetadata metadata{};
     ScratchImage scratch_img{};
 
@@ -62,7 +71,7 @@ bool TextureGroup::CreateTextures(ResourceManager* shader_resource, const wchar_
 
     auto texture = std::make_shared<Texture>();
     m_Textures.push_back(texture);
-    texture->Create(image_fmt, this);
+    texture->Create(image_fmt, this, shader_resource_desc_handle);
 
     *handle = m_Textures.size() - 1;
 
@@ -72,13 +81,14 @@ bool TextureGroup::CreateTextures(ResourceManager* shader_resource, const wchar_
 D3D12_CPU_DESCRIPTOR_HANDLE TextureGroup::TextureDescriptorHeapCPU(TextureHandle handle)
 {
     assert(handle != Texture::k_InvalidHandle);
-    return m_ShaderResource->TextureDescriptorHeapCPU(handle);
+    m_Textures[handle]->GetResourceDescHandle();
+    return m_ShaderResource->DescriptorHeapCPU(m_Textures[handle]->GetResourceDescHandle());
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE TextureGroup::TextureDescriptorHeapGPU(TextureHandle handle)
 {
     assert(handle != Texture::k_InvalidHandle);
-    return m_ShaderResource->TextureDescriptorHeapGPU(handle);
+    return m_ShaderResource->DescriptorHeapGPU(m_Textures[handle]->GetResourceDescHandle());
 }
 
 
@@ -98,15 +108,17 @@ Texture::Texture()
     m_ImageInfo(),
     m_TexBuff(nullptr),
     m_UploadBuff( nullptr ),
-    m_Resource( nullptr )
+    m_Parent( nullptr ),
+    m_ResourceDescHandle()
 {}
 
-bool Texture::Create(const ImageFmt& image, TextureGroup* group)
+bool Texture::Create(const ImageFmt& image, TextureGroup* group, const ResourceDescHandle& res_desc_handle)
 {
     m_ImageInfo = image;
     m_UploadBuff = CreateTemporaryUploadResource(image);
     m_TexBuff = CreateTextureBuffer(image);
-    m_Resource = group;
+    m_Parent = group;
+    m_ResourceDescHandle = res_desc_handle;
 
     if (m_UploadBuff == nullptr || m_TexBuff == nullptr) {
         return false;
@@ -159,12 +171,16 @@ bool Texture::Create(const ImageFmt& image, TextureGroup* group)
     barrier_desc.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
     cmdlist->ResourceBarrier(1, &barrier_desc);
-    cmdlist->Close();
 
     GraphicEngine::Instance().ExecCmdQueue();
     CreateShaderResourceView();
 
     return true;
+}
+
+ResourceDescHandle Texture::GetResourceDescHandle() const
+{
+    return m_ResourceDescHandle;
 }
 
 ID3D12Resource* Texture::CreateTemporaryUploadResource(const ImageFmt& image)
@@ -270,10 +286,10 @@ void Texture::CreateShaderResourceView()
     srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv_desc.Texture2D.MipLevels = 1;                   // ミップマップは使用しないので1
 
-    auto handle = m_Resource->GetTextureHandle(this);
+    auto handle = m_Parent->GetTextureHandle(this);
     GraphicEngine::Instance().Device()->CreateShaderResourceView(
         m_TexBuff,
         &srv_desc,
-        m_Resource->TextureDescriptorHeapCPU(handle)
+        m_Parent->TextureDescriptorHeapCPU(handle)
     );
 }

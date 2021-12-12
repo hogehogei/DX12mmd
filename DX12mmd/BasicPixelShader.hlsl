@@ -4,5 +4,9 @@ SamplerState smp : register(s0);        // 0
 
 float4 BasicPS(UVVertex input) : SV_TARGET
 {
-	return float4(tex.Sample(smp, input.uv));
+	float3 light = normalize(float3(-1, 1, -1));
+	float brightness = dot(light, input.normal);
+
+	//return float4(tex.Sample(smp, input.uv));
+	return float4(brightness, brightness, brightness, 1);
 }

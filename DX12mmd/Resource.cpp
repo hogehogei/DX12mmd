@@ -4,19 +4,19 @@
 
 ResourceManager::ResourceManager()
     :
-    m_ConstantViewNum(0),
-    m_TextureViewNum(0),
+    m_ResourceOrder(),
     m_BasicDescHeap(nullptr),
-    m_RootParam(),
-    m_DescRange(),
     m_Sampler()
 {}
 
-bool ResourceManager::Initialize(uint32_t constant_view_num, uint32_t texture_view_num )
+bool ResourceManager::Initialize(const std::vector<ResourceOrder>& order)
 {
-    m_ConstantViewNum = constant_view_num;
-    m_TextureViewNum = texture_view_num;
+    for (auto& itr : order) {
+        ResourcePack pack{};
+        pack.Order = itr;
 
+        m_ResourceOrder.push_back(pack);
+    }
     CreateRootParameter();
     CreateSampler();
     
@@ -32,48 +32,47 @@ ID3D12DescriptorHeap* ResourceManager::DescriptorHeap()
     return m_BasicDescHeap;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE ResourceManager::TextureDescriptorHeapCPU(uint32_t id)
+D3D12_CPU_DESCRIPTOR_HANDLE ResourceManager::DescriptorHeapCPU(const ResourceDescHandle& res_desc_handle)
 {
+    assert(res_desc_handle);
+
     auto heap_handle = m_BasicDescHeap->GetCPUDescriptorHandleForHeapStart();
     auto device = GraphicEngine::Instance().Device();
-
-    // 定数リソースビューは飛ばす
-    heap_handle.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * m_ConstantViewNum;
-    heap_handle.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * id;
+    heap_handle.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * res_desc_handle.value();
 
     return heap_handle;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE ResourceManager::ConstantDescriptorHeapCPU(uint32_t id)
+D3D12_GPU_DESCRIPTOR_HANDLE ResourceManager::DescriptorHeapGPU(const ResourceDescHandle& res_desc_handle)
 {
-    auto heap_handle = m_BasicDescHeap->GetCPUDescriptorHandleForHeapStart();
-    auto device = GraphicEngine::Instance().Device();
+    assert(res_desc_handle);
 
-    heap_handle.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * id;
-
-    return heap_handle;
-}
-
-D3D12_GPU_DESCRIPTOR_HANDLE ResourceManager::TextureDescriptorHeapGPU(uint32_t id)
-{
     auto heap_handle = m_BasicDescHeap->GetGPUDescriptorHandleForHeapStart();
     auto device = GraphicEngine::Instance().Device();
-
-    // 定数リソースビューは飛ばす
-    heap_handle.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * m_ConstantViewNum;
-    heap_handle.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * id;
+    heap_handle.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * res_desc_handle.value();
 
     return heap_handle;
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE ResourceManager::ConstantDescriptorHeapGPU(uint32_t id)
+ResourceDescHandle ResourceManager::ResourceHandle(const std::string& name, size_t repeat_offset, size_t pos) const
 {
-    auto heap_handle = m_BasicDescHeap->GetGPUDescriptorHandleForHeapStart();
-    auto device = GraphicEngine::Instance().Device();
+    auto result = std::find_if(
+        m_ResourceOrder.begin(),
+        m_ResourceOrder.end(),
+        [name](const ResourcePack& t) { return t.Order.Name == name; }
+    );
 
-    heap_handle.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * id;
+    assert(result != m_ResourceOrder.end());
 
-    return heap_handle;
+    uint32_t handle_distance = 0;
+    for (auto itr = m_ResourceOrder.begin(); itr != result; ++itr) {
+        handle_distance += itr->Order.ResourceCount();
+    }
+
+    handle_distance += (result->Order.Order.size() * repeat_offset);
+    handle_distance += pos;
+
+    return handle_distance;
 }
 
 D3D12_ROOT_PARAMETER* ResourceManager::RootParameter()
@@ -88,17 +87,20 @@ D3D12_STATIC_SAMPLER_DESC* ResourceManager::SamplerDescriptor()
 
 uint32_t ResourceManager::RootParameterSize() const
 {
-    return 2;
+    return m_RootParam.size();
 }
 
-uint32_t ResourceManager::ConstantRootParameterID() const
+uint32_t ResourceManager::RootParameterID(const std::string& name) const
 {
-    return 0;
-}
+    auto result = std::find_if(
+        m_ResourceOrder.begin(),
+        m_ResourceOrder.end(),
+        [name](const ResourcePack& t) { return t.Order.Name == name; }
+    );
 
-uint32_t ResourceManager::TextureRootParameterID() const
-{
-    return 1;
+    assert(result != m_ResourceOrder.end());
+
+    return std::distance(m_ResourceOrder.begin(), result);
 }
 
 bool ResourceManager::CreateDescriptorHeap()
@@ -110,7 +112,7 @@ bool ResourceManager::CreateDescriptorHeap()
     // マスクは0
     heap_desc.NodeMask = 0;
     // ビューは今のところ1つ
-    heap_desc.NumDescriptors = m_ConstantViewNum + m_TextureViewNum;
+    heap_desc.NumDescriptors = CalcDescriptorHeapSize();
     // シェーダーリソースビュー用
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 
@@ -124,27 +126,30 @@ bool ResourceManager::CreateDescriptorHeap()
 
 void ResourceManager::CreateRootParameter()
 {
-    m_DescRange[0].NumDescriptors = m_ConstantViewNum;         // 定数Viewの数を指定
-    m_DescRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-    m_DescRange[0].BaseShaderRegister = 0;                     // 0番スロットから
-    m_DescRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    m_DescRange[1].NumDescriptors = 1;         // テクスチャ数
-    m_DescRange[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    m_DescRange[1].BaseShaderRegister = 0;     // 0番スロットから
-    m_DescRange[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    for (auto& itr : m_ResourceOrder) {
+        const std::vector<ResourceOrder::Type>& types = itr.Order.Order;
+        for (auto type : types) {
+            D3D12_DESCRIPTOR_RANGE desc{};
+            desc.NumDescriptors = 1;
+            desc.RangeType = RangeType(type);
+            desc.BaseShaderRegister = itr.Order.ShaderNum;
+            desc.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+            itr.DescRange.push_back(desc);
+        }
+    }
 
-    m_RootParam[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    // 頂点シェーダから見える
-    m_RootParam[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-    m_RootParam[0].DescriptorTable.pDescriptorRanges = &m_DescRange[0];
-    m_RootParam[0].DescriptorTable.NumDescriptorRanges = 1;
+    for (auto& resource : m_ResourceOrder) {
 
-    m_RootParam[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    // ピクセルシェーダから見える
-    m_RootParam[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    m_RootParam[1].DescriptorTable.pDescriptorRanges = &m_DescRange[1];
-    m_RootParam[1].DescriptorTable.NumDescriptorRanges = 1;
+        D3D12_ROOT_PARAMETER rootparam{};
+
+        rootparam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootparam.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootparam.DescriptorTable.pDescriptorRanges = &resource.DescRange[0];
+        rootparam.DescriptorTable.NumDescriptorRanges = resource.DescRange.size();
+
+        m_RootParam.push_back(rootparam);
+    }
 }
 
 void ResourceManager::CreateSampler()
@@ -160,4 +165,31 @@ void ResourceManager::CreateSampler()
     m_Sampler.MinLOD = 0.0f;                    // ミップマップ最小値
     m_Sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;             // ピクセルシェーダから見える
     m_Sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;                 // リサンプリングしない
+}
+
+size_t ResourceManager::CalcDescriptorHeapSize()
+{
+    size_t sum = 0;
+    for (const auto& itr : m_ResourceOrder) {
+        sum += itr.Order.ResourceCount();
+    }
+
+    return sum;
+}
+
+D3D12_DESCRIPTOR_RANGE_TYPE ResourceManager::RangeType(ResourceOrder::Type type) const
+{
+    switch (type)
+    {
+    case ResourceOrder::k_ShaderResource:
+        return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    case ResourceOrder::k_ConstantResource:
+        return D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    case ResourceOrder::k_UnorderedResource:
+        return D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    default:
+        break;
+    }
+
+    assert(0);
 }

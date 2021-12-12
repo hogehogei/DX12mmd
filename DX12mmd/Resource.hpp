@@ -2,9 +2,42 @@
 
 #include <d3d12.h>
 #include <cstdint>
+#include <string>
+#include <vector>
+#include <optional>
+
+struct ResourceOrder
+{
+    enum Type
+    {
+        k_ShaderResource,
+        k_ConstantResource,
+        k_UnorderedResource,
+    };
+
+    size_t ResourceCount() const
+    {
+        return Order.size() * RepeatCount;
+    }
+
+    std::string Name;
+    std::vector<Type> Order;
+    size_t RepeatCount;
+    uint64_t ShaderNum;
+};
+
+using ResourceDescHandle = std::optional<uint32_t>;
 
 class ResourceManager
 {
+private:
+
+    struct ResourcePack
+    {
+        ResourceOrder Order;
+        std::vector<D3D12_DESCRIPTOR_RANGE> DescRange;
+    };
+
 public:
 
     ResourceManager();
@@ -13,21 +46,19 @@ public:
     ResourceManager& operator=(const ResourceManager&) = delete;
 
     bool Initialize(
-        uint32_t constant_view_num,
-        uint32_t texture_view_num
+        const std::vector<ResourceOrder>& order
     );
 
     ID3D12DescriptorHeap* DescriptorHeap();
-    D3D12_CPU_DESCRIPTOR_HANDLE TextureDescriptorHeapCPU(uint32_t id);
-    D3D12_CPU_DESCRIPTOR_HANDLE ConstantDescriptorHeapCPU(uint32_t id);
-    D3D12_GPU_DESCRIPTOR_HANDLE TextureDescriptorHeapGPU(uint32_t id);
-    D3D12_GPU_DESCRIPTOR_HANDLE ConstantDescriptorHeapGPU(uint32_t id);
+    D3D12_CPU_DESCRIPTOR_HANDLE DescriptorHeapCPU(const ResourceDescHandle& res_desc_handle);
+    D3D12_GPU_DESCRIPTOR_HANDLE DescriptorHeapGPU(const ResourceDescHandle& res_desc_handle);
+    ResourceDescHandle ResourceHandle(const std::string& name, size_t repeat_offset = 0, size_t pos = 0) const;
+
     D3D12_ROOT_PARAMETER* RootParameter();
     D3D12_STATIC_SAMPLER_DESC* SamplerDescriptor();
 
     uint32_t RootParameterSize() const;
-    uint32_t ConstantRootParameterID() const;
-    uint32_t TextureRootParameterID() const;
+    uint32_t RootParameterID(const std::string& name) const;
 
 private:
 
@@ -35,11 +66,12 @@ private:
     void CreateRootParameter();
     void CreateSampler();
 
-    uint32_t m_ConstantViewNum;
-    uint32_t m_TextureViewNum;
+    size_t CalcDescriptorHeapSize();
+    D3D12_DESCRIPTOR_RANGE_TYPE RangeType(ResourceOrder::Type type) const;
+
+    std::vector<ResourcePack> m_ResourceOrder;
+    std::vector<D3D12_ROOT_PARAMETER> m_RootParam;
 
     ID3D12DescriptorHeap* m_BasicDescHeap;
-    D3D12_ROOT_PARAMETER m_RootParam[2];
-    D3D12_DESCRIPTOR_RANGE m_DescRange[2];
     D3D12_STATIC_SAMPLER_DESC m_Sampler;
 };

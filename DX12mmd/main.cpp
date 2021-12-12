@@ -16,6 +16,7 @@
 #include "Resource.hpp"
 #include "VertexBuffer.hpp"
 #include "IndexBuffer.hpp"
+#include "PMD.hpp"
 
 using namespace std;
 
@@ -94,30 +95,33 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 
     MSG msg = {};
-    Vertex vertices[] =
-    {
-        {{ 0.0f,   100.0f, 0.0f}, {0.0f, 1.0f}},   // 左下
-        {{ 0.0f,     0.0f, 0.0f}, {0.0f, 0.0f}},   // 左上
-        {{ 100.0f, 100.0f, 0.0f}, {1.0f, 1.0f}},   // 右下
-        {{ 100.0f,   0.0f, 0.0f}, {1.0f, 0.0f}},   // 右上
-    };
     uint16_t incides[] =
     {
         0, 1, 2,
         2, 1, 3
     };
 
-    VertexBufferPtr vertbuff = std::make_shared<VertexBuffer>();
-    if (!vertbuff->CreateVertexBuffer(vertices, 4)) {
+    PMDData pmd;
+    if (!pmd.Open("Model/初音ミク.pmd")) {
         return 1;
     }
-    IndexBufferPtr idxbuff = std::make_shared<IndexBuffer>();
-    if (!idxbuff->CreateIndexBuffer(incides, 6)) {
+
+    auto vertbuff = std::make_shared<VertexBufferPMD>();
+    if (!vertbuff->CreateVertexBuffer(pmd)) {
+        return 1;
+    }
+    auto idxbuff = std::make_shared<IndexBuffer>();
+    if (!idxbuff->CreateIndexBuffer(pmd)) {
         return 1;
     }
 
     GraphicEngine::Instance().SetVertexBuffer(vertbuff);
     GraphicEngine::Instance().SetIndexBuffer(idxbuff);
+
+    if (!GraphicEngine::Instance().CreateGraphicPipeLine()) {
+        return 1;
+    }
+
 
 
     while (1) {

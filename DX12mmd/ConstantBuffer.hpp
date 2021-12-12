@@ -13,7 +13,7 @@ public:
     ConstantBuffer(const ConstantBuffer&) = delete;
     const ConstantBuffer& operator=(const ConstantBuffer&) = delete;
 
-    bool Create(ResourceManager* resource_manager, uint32_t buffer_size, uint32_t desc_id);
+    bool Create(ResourceManager* resource_manager, uint32_t buffer_size, const ResourceDescHandle& const_resource_desc_handle);
     bool Write(void* ptr, uint32_t size);
 
 private:

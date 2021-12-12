@@ -1,15 +1,32 @@
+#include <d3dx12.h>
+#include <vector>
+#include <wrl/client.h>
+
 #include "AppManager.hpp"
 #include "Shader.hpp"
 #include "Resource.hpp"
 
-#include <vector>
-#include <wrl/client.h>
 
 using Microsoft::WRL::ComPtr;
 
 namespace
 {
     GraphicEngine* s_Instance = nullptr;
+
+    ResourceOrder s_MatrixResourceOrder =
+    {
+        "MatrixResource",
+        { ResourceOrder::k_ConstantResource },
+        1,
+        0
+    };
+    ResourceOrder s_TextureResourceOrder =
+    {
+        "TextureResource",
+        { ResourceOrder::k_ShaderResource },
+        1,
+        0
+    };
 }
 
 GraphicEngine::GraphicEngine()
@@ -21,9 +38,10 @@ GraphicEngine::GraphicEngine()
     m_CmdList(nullptr),
     m_CmdQueue(nullptr),
     m_RtvHeaps(nullptr),
+    m_DepthBuffer(nullptr),
+    m_DSV_Heap(nullptr),
     m_VertexShader(),
     m_PixelShader(),
-    m_InputLayout(),
     m_PipelineState(nullptr),
     m_RootSignature(nullptr),
     m_Fence(),
@@ -76,12 +94,19 @@ ID3D12GraphicsCommandList* GraphicEngine::CmdList()
 
 void GraphicEngine::ExecCmdQueue()
 {
+    // 命令クローズ
+    m_CmdList->Close();
+
     // コマンドリスト実行
     ID3D12CommandList* cmdlists[] = { m_CmdList };
     m_CmdQueue->ExecuteCommandLists(1, cmdlists);
 
     // コマンド実行待ち
     m_Fence.WaitCmdComplete();
+
+    // キューをクリア
+    m_CmdAllocator->Reset();
+    m_CmdList->Reset(m_CmdAllocator, nullptr);
 }
 
 void GraphicEngine::SetViewPort()
@@ -111,6 +136,30 @@ void GraphicEngine::SetIndexBuffer(IndexBufferPtr idxbuff)
 
 void GraphicEngine::FlipWindow()
 {
+#if 1
+    // 透視変換行列設定
+    auto world_mat = XMMatrixRotationY(XM_PI);
+
+    XMFLOAT3 eye(0, 10, -15);
+    XMFLOAT3 target(0, 10, 0);
+    XMFLOAT3 up(0, 1, 0);
+
+    auto view_mat = XMMatrixLookAtLH(
+        XMLoadFloat3(&eye), XMLoadFloat3(&target), XMLoadFloat3(&up)
+    );
+    auto proj_mat = XMMatrixPerspectiveFovLH(
+        XM_PIDIV2,
+        static_cast<float>(k_WindowWidth) / static_cast<float>(k_WindowHeight),
+        1.0f,
+        100.0f
+    );
+
+    m_Matrix.World = world_mat;
+    m_Matrix.ViewProj = view_mat* proj_mat;
+
+    m_ConstBuff.Write(&m_Matrix, sizeof(m_Matrix));
+#endif
+
     // バックバッファーのレンダーターゲットビューを、これから利用するレンダーターゲットビューに設定
     auto bbidx = m_Swapchain->GetCurrentBackBufferIndex();
     auto rtvH = m_RtvHeaps->GetCPUDescriptorHandleForHeapStart();
@@ -122,11 +171,16 @@ void GraphicEngine::FlipWindow()
     // パイプラインステートセット
     m_CmdList->SetPipelineState(m_PipelineState);
 
-    m_CmdList->OMSetRenderTargets(1, &rtvH, true, nullptr);
+    auto dsv_desc_cpu_handle = m_DSV_Heap->GetCPUDescriptorHandleForHeapStart();
+    m_CmdList->OMSetRenderTargets(1, &rtvH, true, &dsv_desc_cpu_handle);
 
     // レンダーターゲットクリア
     float clear_color[] = { 1.0f, 1.0f, 1.0f, 1.0f };
     m_CmdList->ClearRenderTargetView(rtvH, clear_color, 0, nullptr);
+    // Zバッファクリア
+    // 1.0f = 最大値 でクリア
+    m_CmdList->ClearDepthStencilView(dsv_desc_cpu_handle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
     m_CmdList->SetGraphicsRootSignature(m_RootSignature);
     m_CmdList->RSSetViewports(1, &m_ViewPort);
     m_CmdList->RSSetScissorRects(1, &m_ScissorRect);
@@ -135,12 +189,14 @@ void GraphicEngine::FlipWindow()
     auto descriptor_heap = m_Resource.DescriptorHeap();
     m_CmdList->SetDescriptorHeaps(1, &descriptor_heap);
     m_CmdList->SetGraphicsRootDescriptorTable(
-        m_Resource.TextureRootParameterID(),
+        m_Resource.RootParameterID("TextureResource"),
         m_Textures.TextureDescriptorHeapGPU(m_TextureHandle)
     );
+
+    auto handle = m_Resource.ResourceHandle("MatrixResource");
     m_CmdList->SetGraphicsRootDescriptorTable(
-        m_Resource.ConstantRootParameterID(),
-        m_Resource.ConstantDescriptorHeapGPU(0)
+        m_Resource.RootParameterID("MatrixResource"),
+        m_Resource.DescriptorHeapGPU(handle)
     );
     
     m_CmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -215,6 +271,9 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
     if (!CreateDescriptorHeap()) {
         return false;
     }
+    if (!CreateDepthBuffer()) {
+        return false;
+    }
     if (!LinkSwapchainToDesc()) {
         return false;
     }
@@ -229,25 +288,21 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
         return false;
     }
 
-    if (!m_Resource.Initialize(1, 1)) {
+    std::vector<ResourceOrder> order;
+    order.push_back(s_MatrixResourceOrder);
+    order.push_back(s_TextureResourceOrder);
+    if (!m_Resource.Initialize(order)) {
         return false;
     }
 
-    if (!m_Textures.CreateTextures(&m_Resource, L"img/textest.png", &m_TextureHandle)) {
+    auto texture_resource = m_Resource.ResourceHandle("TextureResource");
+    if (!m_Textures.CreateTextures(&m_Resource, texture_resource, L"img/textest.png", &m_TextureHandle)) {
         return false;
     }
 
-    m_Matrix = XMMatrixIdentity();
-    if (!m_ConstBuff.Create(&m_Resource, sizeof(XMMATRIX), 0)) {
-        return false;
-    }
-    m_Matrix.r[0].m128_f32[0] = 2.0f / k_WindowWidth;
-    m_Matrix.r[1].m128_f32[1] = -2.0f / k_WindowHeight;
-    m_Matrix.r[3].m128_f32[0] = -1.0f;
-    m_Matrix.r[3].m128_f32[1] = 1.0f;
-    m_ConstBuff.Write(&m_Matrix, sizeof(m_Matrix));
-
-    if (!CreateGraphicPipeLine()) {
+    m_Matrix.World = XMMatrixIdentity();
+    m_Matrix.ViewProj = XMMatrixIdentity();
+    if (!m_ConstBuff.Create(&m_Resource, sizeof(m_Matrix), m_Resource.ResourceHandle("MatrixResource"))) {
         return false;
     }
 
@@ -321,6 +376,62 @@ bool GraphicEngine::CreateDescriptorHeap()
     return result == S_OK;
 }
 
+bool GraphicEngine::CreateDepthBuffer()
+{
+    D3D12_RESOURCE_DESC depth_res_desc{};
+
+    depth_res_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;  // 2次元のテクスチャデータ
+    depth_res_desc.Width = k_WindowWidth;                           // 幅と高さはレンダーターゲットと同じ
+    depth_res_desc.Height = k_WindowHeight;
+    depth_res_desc.DepthOrArraySize = 1;                            // テクスチャ配列でも、3Dテクスチャでもない
+    depth_res_desc.Format = DXGI_FORMAT_D32_FLOAT;                  // 深度値書き込み用フォーマット
+    depth_res_desc.SampleDesc.Count = 1;
+    depth_res_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL; // デプスステンシルとして利用
+
+    auto depth_heap_prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+
+
+    D3D12_CLEAR_VALUE depth_clear_value{};
+    depth_clear_value.DepthStencil.Depth = 1.0f;            // 深さ1.0f（最大値）でクリア
+    depth_clear_value.Format = DXGI_FORMAT_D32_FLOAT;       // 32bit float値としてクリア
+
+    auto result = m_Device->CreateCommittedResource(
+        &depth_heap_prop,
+        D3D12_HEAP_FLAG_NONE,
+        &depth_res_desc,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE,                   // 深度値書き込みに利用
+        nullptr,
+        IID_PPV_ARGS(&m_DepthBuffer)
+    );
+
+    if (result != S_OK) {
+        return false;
+    }
+
+    // 深度のためのディスクリプタヒープ作成
+    D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc{};
+    dsv_heap_desc.NumDescriptors = 1;                       // 深度ビューは１つ
+    dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;    // デプスステンシルビューとして使う
+    result = m_Device->CreateDescriptorHeap(&dsv_heap_desc, IID_PPV_ARGS(&m_DSV_Heap));
+    if (result != S_OK) {
+        return false;
+    }
+
+    // 深度ビュー作成
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc{};
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;                    // 深度値に32ビット使用
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;     // 2Dテクスチャ
+    dsv_desc.Flags = D3D12_DSV_FLAG_NONE;
+
+    m_Device->CreateDepthStencilView(
+        m_DepthBuffer,
+        &dsv_desc,
+        m_DSV_Heap->GetCPUDescriptorHandleForHeapStart()
+    );
+
+    return true;
+}
+
 bool GraphicEngine::LinkSwapchainToDesc()
 {
     DXGI_SWAP_CHAIN_DESC swap_chain_desc{};
@@ -383,10 +494,15 @@ bool GraphicEngine::CreateGraphicPipeLine()
 
     gpipeline.BlendState.RenderTarget[0] = render_target_blend_desc;
 
+    // Zバッファ設定
+    gpipeline.DepthStencilState.DepthEnable = true;
+    gpipeline.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;    // すべて書き込む
+    gpipeline.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;         // 小さいほうを採用
+    gpipeline.DSVFormat = DXGI_FORMAT_D32_FLOAT;                                // 深度値は 32bit float
+
     // 入力レイアウトの設定
-    SetVertexLayout();
-    gpipeline.InputLayout.pInputElementDescs = m_InputLayout;
-    gpipeline.InputLayout.NumElements = 2;
+    gpipeline.InputLayout.pInputElementDescs = m_VertBuff->GetVertexLayout();
+    gpipeline.InputLayout.NumElements = m_VertBuff->VertexLayoutLength();
 
     // トライアングルカットなし
     gpipeline.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
@@ -477,30 +593,5 @@ bool GraphicEngine::SetRenderTargetResourceBarrier( UINT bbidx, bool barrier_on_
     m_CmdList->ResourceBarrier(1, &barrier_desc);
     
     return true;
-}
-
-
-void GraphicEngine::SetVertexLayout()
-{
-    // 座標情報
-    m_InputLayout[0] = {
-        "POSITION",
-        0,
-        DXGI_FORMAT_R32G32B32_FLOAT,
-        0,
-        D3D12_APPEND_ALIGNED_ELEMENT,
-        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
-        0
-    };
-    // uv
-    m_InputLayout[1] = {
-        "TEXCOORD",
-        0,
-        DXGI_FORMAT_R32G32_FLOAT,
-        0,
-        D3D12_APPEND_ALIGNED_ELEMENT,
-        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
-        0
-    };
 }
 

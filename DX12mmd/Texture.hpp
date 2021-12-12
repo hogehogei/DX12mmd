@@ -39,7 +39,12 @@ public:
     TextureGroup(TextureGroup&) = delete;
     TextureGroup& operator=(TextureGroup&) = delete;
 
-    bool CreateTextures(ResourceManager* shader_resource, const wchar_t* filename, TextureHandle* handle);
+    bool CreateTextures(
+        ResourceManager* shader_resource,
+        const ResourceDescHandle& shader_resource_desc_handle,
+        const wchar_t* filename, 
+        TextureHandle* handle
+    );
     
     D3D12_CPU_DESCRIPTOR_HANDLE TextureDescriptorHeapCPU(TextureHandle handle);
     D3D12_GPU_DESCRIPTOR_HANDLE TextureDescriptorHeapGPU(TextureHandle handle);
@@ -65,7 +70,8 @@ public:
 private:
 
     friend class TextureGroup;
-    bool Create(const ImageFmt& image, TextureGroup* group);
+    bool Create(const ImageFmt& image, TextureGroup* group, const ResourceDescHandle& res_desc_handle);
+    ResourceDescHandle GetResourceDescHandle() const;
 
     ID3D12Resource* CreateTemporaryUploadResource(const ImageFmt& image);
     ID3D12Resource* CreateTextureBuffer(const ImageFmt& image);
@@ -74,5 +80,6 @@ private:
     ImageFmt        m_ImageInfo;
     ID3D12Resource* m_TexBuff;
     ID3D12Resource* m_UploadBuff;
-    TextureGroup*   m_Resource;
+    TextureGroup*   m_Parent;
+    ResourceDescHandle m_ResourceDescHandle;
 };

@@ -11,6 +11,7 @@
 #include "ConstantBuffer.hpp"
 #include "Texture.hpp"
 #include "Resource.hpp"
+#include "Matrix.hpp"
 
 class GraphicEngine
 {
@@ -22,6 +23,8 @@ public:
     static bool Initialize(HWND hwnd);
     static GraphicEngine& Instance();
     static void EnableDebugLayer();
+
+    bool CreateGraphicPipeLine();
 
     ID3D12Device* Device(); 
     ID3D12GraphicsCommandList* CmdList();
@@ -40,11 +43,10 @@ private:
     bool InitializeCommandQueue();
     bool CreateSwapChain(HWND hwnd);
     bool CreateDescriptorHeap();
+    bool CreateDepthBuffer();
     bool LinkSwapchainToDesc();
-    bool CreateGraphicPipeLine();
     bool CreateRootSignature(ID3D12RootSignature** rootsignature);
     bool SetRenderTargetResourceBarrier(UINT bbidx, bool barrier_on_flag);
-    void SetVertexLayout();
 
     ID3D12Device* m_Device;
     IDXGIFactory6* m_DxgiFactory;
@@ -56,9 +58,11 @@ private:
     ID3D12CommandQueue* m_CmdQueue;
     ID3D12DescriptorHeap* m_RtvHeaps;
 
+    ID3D12Resource* m_DepthBuffer;
+    ID3D12DescriptorHeap* m_DSV_Heap;
+
     CompileShader m_VertexShader;
     CompileShader m_PixelShader;
-    D3D12_INPUT_ELEMENT_DESC m_InputLayout[2];
 
     ID3D12PipelineState* m_PipelineState;
     ID3D12RootSignature* m_RootSignature;
@@ -71,7 +75,7 @@ private:
     IndexBufferPtr m_IdxBuff;
     ConstantBuffer m_ConstBuff;
 
-    XMMATRIX m_Matrix;
+    MatricesData m_Matrix;
 
     ResourceManager m_Resource;
     TextureGroup m_Textures;
