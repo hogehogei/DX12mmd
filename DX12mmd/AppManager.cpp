@@ -16,16 +16,8 @@ namespace
     ResourceOrder s_MatrixResourceOrder =
     {
         "MatrixResource",
-        { ResourceOrder::k_ConstantResource },
+        { {ResourceOrder::k_ConstantResource, 1, 0} },
         1,
-        0
-    };
-    ResourceOrder s_TextureResourceOrder =
-    {
-        "TextureResource",
-        { ResourceOrder::k_ShaderResource },
-        1,
-        0
     };
 }
 
@@ -47,12 +39,10 @@ GraphicEngine::GraphicEngine()
     m_Fence(),
     m_ViewPort(),
     m_ScissorRect(),
-    m_VertBuff(),
-    m_IdxBuff(),
     m_ConstBuff(),
+    m_Model(),
     m_Resource(),
-    m_Textures(),
-    m_TextureHandle(0)
+    m_Textures()
 {}
 
 bool GraphicEngine::Initialize( HWND hwnd )
@@ -92,6 +82,11 @@ ID3D12GraphicsCommandList* GraphicEngine::CmdList()
     return m_CmdList;
 }
 
+ResourceManager* GraphicEngine::Resource()
+{
+    return &m_Resource;
+}
+
 void GraphicEngine::ExecCmdQueue()
 {
     // 命令クローズ
@@ -124,21 +119,11 @@ void GraphicEngine::SetViewPort()
     m_ScissorRect.bottom = m_ScissorRect.top + k_WindowHeight;
 }
 
-void GraphicEngine::SetVertexBuffer(VertexBufferPtr vertbuff)
-{
-    m_VertBuff = vertbuff;
-}
-
-void GraphicEngine::SetIndexBuffer(IndexBufferPtr idxbuff)
-{
-    m_IdxBuff = idxbuff;
-}
-
 void GraphicEngine::FlipWindow()
 {
 #if 1
     // 透視変換行列設定
-    auto world_mat = XMMatrixRotationY(XM_PI);
+    auto world_mat = XMMatrixRotationY(0);
 
     XMFLOAT3 eye(0, 10, -15);
     XMFLOAT3 target(0, 10, 0);
@@ -155,7 +140,9 @@ void GraphicEngine::FlipWindow()
     );
 
     m_Matrix.World = world_mat;
-    m_Matrix.ViewProj = view_mat* proj_mat;
+    m_Matrix.View = view_mat;
+    m_Matrix.Proj = proj_mat;
+    m_Matrix.Eye = eye;
 
     m_ConstBuff.Write(&m_Matrix, sizeof(m_Matrix));
 #endif
@@ -185,15 +172,9 @@ void GraphicEngine::FlipWindow()
     m_CmdList->RSSetViewports(1, &m_ViewPort);
     m_CmdList->RSSetScissorRects(1, &m_ScissorRect);
 
-    m_CmdList->SetGraphicsRootSignature(m_RootSignature);
-    auto descriptor_heap = m_Resource.DescriptorHeap();
-    m_CmdList->SetDescriptorHeaps(1, &descriptor_heap);
-    m_CmdList->SetGraphicsRootDescriptorTable(
-        m_Resource.RootParameterID("TextureResource"),
-        m_Textures.TextureDescriptorHeapGPU(m_TextureHandle)
-    );
-
     auto handle = m_Resource.ResourceHandle("MatrixResource");
+    auto descriptor_heap = m_Resource.DescriptorHeap(handle);
+    m_CmdList->SetDescriptorHeaps(1, &descriptor_heap);
     m_CmdList->SetGraphicsRootDescriptorTable(
         m_Resource.RootParameterID("MatrixResource"),
         m_Resource.DescriptorHeapGPU(handle)
@@ -202,12 +183,29 @@ void GraphicEngine::FlipWindow()
     m_CmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // 頂点バッファービュー設定
-    auto vbview = m_VertBuff->GetVertexBufferView();
+    auto vbview = m_Model.GetVertexBuffer()->GetVertexBufferView();
     m_CmdList->IASetVertexBuffers(0, 1, &vbview);
-    auto idxview = m_IdxBuff->GetIndexBufferView();
+    auto idxview = m_Model.GetIndexBuffer()->GetIndexBufferView();
     m_CmdList->IASetIndexBuffer(&idxview);
+    
     //描写命令
-    m_CmdList->DrawIndexedInstanced(m_IdxBuff->Count(), 1, 0, 0, 0);
+    handle = m_Resource.ResourceHandle("Miku");
+    descriptor_heap = m_Resource.DescriptorHeap(handle);
+    m_CmdList->SetDescriptorHeaps(1, &descriptor_heap);
+
+    //auto materialH = m_Model.DescriptorHeapGPU();
+    const std::vector<Material>& materials = m_Model.GetPMDData().MaterialData();
+    unsigned int idx_offset = 0;
+    
+    for (const auto& m : materials) {
+        m_CmdList->SetGraphicsRootDescriptorTable(
+            m_Resource.RootParameterID("Miku"),
+            m_Resource.DescriptorHeapGPU(handle)
+        );
+        m_CmdList->DrawIndexedInstanced(m.IndicesNum, 1, idx_offset, 0, 0);
+        handle.Advance();
+        idx_offset += m.IndicesNum;
+    }
 
     // リソースバリアをPRESENTに戻す
     SetRenderTargetResourceBarrier(bbidx, false);
@@ -290,19 +288,24 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
 
     std::vector<ResourceOrder> order;
     order.push_back(s_MatrixResourceOrder);
-    order.push_back(s_TextureResourceOrder);
+    //order.push_back(s_TextureResourceOrder);
     if (!m_Resource.Initialize(order)) {
         return false;
     }
 
-    auto texture_resource = m_Resource.ResourceHandle("TextureResource");
-    if (!m_Textures.CreateTextures(&m_Resource, texture_resource, L"img/textest.png", &m_TextureHandle)) {
+    //auto texture_resource = m_Resource.ResourceHandle("TextureResource");
+    //if (!m_Textures.CreateTextures(&m_Resource, texture_resource, L"img/textest.png", &m_TextureHandle)) {
+    //    return false;
+    //}
+
+    if (!m_Model.Create(&m_Resource, "Miku", "Model/初音ミク.pmd")) {
         return false;
     }
 
     m_Matrix.World = XMMatrixIdentity();
-    m_Matrix.ViewProj = XMMatrixIdentity();
-    if (!m_ConstBuff.Create(&m_Resource, sizeof(m_Matrix), m_Resource.ResourceHandle("MatrixResource"))) {
+    m_Matrix.View = XMMatrixIdentity();
+    m_Matrix.Proj = XMMatrixIdentity();
+    if (!m_ConstBuff.Create(&m_Resource, sizeof(m_Matrix), 1, m_Resource.ResourceHandle("MatrixResource"))) {
         return false;
     }
 
@@ -447,8 +450,10 @@ bool GraphicEngine::LinkSwapchainToDesc()
     }
 
     // SRGBレンダーターゲットビュー設定
-    D3D12_RENDER_TARGET_VIEW_DESC rtvdesc{};
-    rtvdesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    D3D12_RENDER_TARGET_VIEW_DESC rtvdesc{}; 
+    //rtvdesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    rtvdesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
     rtvdesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 
     D3D12_CPU_DESCRIPTOR_HANDLE handle = m_RtvHeaps->GetCPUDescriptorHandleForHeapStart();
@@ -501,8 +506,8 @@ bool GraphicEngine::CreateGraphicPipeLine()
     gpipeline.DSVFormat = DXGI_FORMAT_D32_FLOAT;                                // 深度値は 32bit float
 
     // 入力レイアウトの設定
-    gpipeline.InputLayout.pInputElementDescs = m_VertBuff->GetVertexLayout();
-    gpipeline.InputLayout.NumElements = m_VertBuff->VertexLayoutLength();
+    gpipeline.InputLayout.pInputElementDescs = m_Model.GetVertexBuffer()->GetVertexLayout();
+    gpipeline.InputLayout.NumElements = m_Model.GetVertexBuffer()->VertexLayoutLength();
 
     // トライアングルカットなし
     gpipeline.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
@@ -542,7 +547,7 @@ bool GraphicEngine::CreateRootSignature( ID3D12RootSignature** rootsignature )
     rootsig_desc.NumParameters = m_Resource.RootParameterSize();
 
     rootsig_desc.pStaticSamplers = m_Resource.SamplerDescriptor();
-    rootsig_desc.NumStaticSamplers = 1;
+    rootsig_desc.NumStaticSamplers = 2;
 
     ComPtr<ID3DBlob> rootsig_blob = nullptr;
     ComPtr<ID3DBlob> error_blob = nullptr;

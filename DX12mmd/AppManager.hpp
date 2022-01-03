@@ -12,6 +12,7 @@
 #include "Texture.hpp"
 #include "Resource.hpp"
 #include "Matrix.hpp"
+#include "MMDModel.hpp"
 
 class GraphicEngine
 {
@@ -25,9 +26,9 @@ public:
     static void EnableDebugLayer();
 
     bool CreateGraphicPipeLine();
-
     ID3D12Device* Device(); 
     ID3D12GraphicsCommandList* CmdList();
+    ResourceManager* Resource();
     void ExecCmdQueue();
 
     void SetViewPort();
@@ -71,13 +72,11 @@ private:
 
     D3D12_VIEWPORT m_ViewPort;
     D3D12_RECT m_ScissorRect;
-    VertexBufferPtr m_VertBuff;
-    IndexBufferPtr m_IdxBuff;
     ConstantBuffer m_ConstBuff;
 
-    MatricesData m_Matrix;
+    SceneMatrix m_Matrix;
+    MMDModel m_Model;
 
     ResourceManager m_Resource;
     TextureGroup m_Textures;
-    TextureHandle m_TextureHandle;
 };

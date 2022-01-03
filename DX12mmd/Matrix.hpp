@@ -2,8 +2,10 @@
 
 #include <DirectXMath.h>
 
-struct MatricesData
+struct SceneMatrix
 {
     DirectX::XMMATRIX World;        
-    DirectX::XMMATRIX ViewProj;     // ビュー＆プロジェクション合成行列
+    DirectX::XMMATRIX View;     // ビュー行列
+    DirectX::XMMATRIX Proj;     // プロジェクション行列
+    DirectX::XMFLOAT3 Eye;      // 視点座標
 };

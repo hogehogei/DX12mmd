@@ -8,26 +8,33 @@
 
 TextureGroup::TextureGroup()
     :
-    m_ShaderResource( nullptr )
+    m_ShaderResource(nullptr)
 {}
 
+TextureGroup::TextureGroup( ResourceManager* shader_resource )
+    :
+    m_ShaderResource( shader_resource )
+{}
+
+void TextureGroup::SetShaderResource(ResourceManager* shader_resource)
+{
+    m_ShaderResource = shader_resource;
+}
+
 bool TextureGroup::CreateTextures(
-    ResourceManager* shader_resource, 
-    const ResourceDescHandle& shader_resource_desc_handle,
-    const wchar_t* filename, 
-    TextureHandle* handle
+    const std::filesystem::path& filepath,
+    TexturePtr* handle
 )
 {
-    if (!shader_resource_desc_handle) {
-        return false;
+    auto texture_cache = m_Textures.find(filepath.wstring());
+    if (texture_cache != m_Textures.end()) {
+        *handle = texture_cache->second;
+        return true;
     }
-
     TexMetadata metadata{};
     ScratchImage scratch_img{};
 
-    m_ShaderResource = shader_resource;
-
-    auto result = LoadFromWICFile(filename, WIC_FLAGS_NONE, &metadata, scratch_img);
+    auto result = LoadFromWICFile(filepath.c_str(), WIC_FLAGS_NONE, &metadata, scratch_img);
     if (result != S_OK) {
         return false;
     }
@@ -45,62 +52,120 @@ bool TextureGroup::CreateTextures(
         img->pixels,
         static_cast<D3D12_RESOURCE_DIMENSION>(metadata.dimension)
     };
-#if 0
-    ImageFmt image = {
-        256,
-        256,
-        AlignmentedSize( 256, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT ) * 4,
-        256 * 256 * 4,
-        1,
-        1,
-        1,
-        DXGI_FORMAT_R8G8B8A8_UNORM,
-        nullptr,
-        D3D12_RESOURCE_DIMENSION_TEXTURE2D
-    };
-
-    m_TextureData = std::vector<TexRGBA>(image.Width * image.Height);
-    for (auto& rgba : m_TextureData) {
-        rgba.R = rand() % 256;
-        rgba.G = rand() % 256;
-        rgba.B = rand() % 256;
-        rgba.A = 255;
-    }
-    image.Pixels = reinterpret_cast<uint8_t*>(m_TextureData.data());
-#endif
 
     auto texture = std::make_shared<Texture>();
-    m_Textures.push_back(texture);
-    texture->Create(image_fmt, this, shader_resource_desc_handle);
+    m_Textures[filepath.wstring()] = texture;
+    texture->Create(image_fmt, this);
 
-    *handle = m_Textures.size() - 1;
+    *handle = texture;
 
     return true;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE TextureGroup::TextureDescriptorHeapCPU(TextureHandle handle)
+bool TextureGroup::CreatePlaneTexture(
+    const std::wstring& name,
+    TexturePtr* handle,
+    uint8_t color_r, uint8_t color_g, uint8_t color_b
+)
 {
-    assert(handle != Texture::k_InvalidHandle);
-    m_Textures[handle]->GetResourceDescHandle();
-    return m_ShaderResource->DescriptorHeapCPU(m_Textures[handle]->GetResourceDescHandle());
-}
-
-D3D12_GPU_DESCRIPTOR_HANDLE TextureGroup::TextureDescriptorHeapGPU(TextureHandle handle)
-{
-    assert(handle != Texture::k_InvalidHandle);
-    return m_ShaderResource->DescriptorHeapGPU(m_Textures[handle]->GetResourceDescHandle());
-}
-
-
-TextureHandle TextureGroup::GetTextureHandle(Texture* texptr)
-{  
-    for (size_t i = 0; i < m_Textures.size(); ++i) {
-        if (m_Textures[i].get() == texptr) {
-            return i;
-        }
+    auto texture_cache = m_Textures.find(name);
+    if (texture_cache != m_Textures.end()) {
+        *handle = texture_cache->second;
+        return true;
     }
 
-    return Texture::k_InvalidHandle;
+    constexpr uint32_t image_width = 4;
+    constexpr uint32_t image_height = 4;
+    std::vector<uint8_t> plane_image(AlignmentedSize(image_width * 4, 256) * image_height);
+    for (std::size_t i = 0; i < plane_image.size() / 4; ++i) {
+        uint8_t* pixel = &plane_image[i * 4];
+        pixel[0] = color_r;
+        pixel[1] = color_g;
+        pixel[2] = color_b;
+        pixel[3] = 0xFF;
+    }
+
+    ImageFmt image_fmt = {
+        image_height,
+        image_width,
+        AlignmentedSize(image_width * 4, 256),
+        image_height * AlignmentedSize(image_width * 4, 256),
+        1,
+        1,
+        1,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        plane_image.data(),
+        static_cast<D3D12_RESOURCE_DIMENSION>(TEX_DIMENSION_TEXTURE2D)
+    };
+
+    auto texture = std::make_shared<Texture>();
+    m_Textures[name] = texture;
+    texture->Create(image_fmt, this);
+
+    *handle = texture;
+
+    return true;
+}
+
+bool TextureGroup::CreateGradationTexture(
+    const std::wstring& name,
+    TexturePtr* handle
+)
+{
+    auto texture_cache = m_Textures.find(name);
+    if (texture_cache != m_Textures.end()) {
+        *handle = texture_cache->second;
+        return true;
+    }
+
+    constexpr uint32_t image_width = 4;
+    constexpr uint32_t image_height = 256;
+    uint8_t color = 0xFF;
+    std::vector<uint8_t> plane_image(AlignmentedSize(image_width * 4, 256) * image_height);
+    for (std::size_t i = 0; i < 256; ++i) {
+        uint8_t* pixel = &plane_image[i * 256];
+        pixel[0] = color;
+        pixel[1] = color;
+        pixel[2] = color;
+        pixel[3] = color;
+        --color;
+    }
+
+    ImageFmt image_fmt = {
+        image_height,
+        image_width,
+        AlignmentedSize(image_width * 4, 256),
+        image_height * AlignmentedSize(image_width * 4, 256),
+        1,
+        1,
+        1,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        plane_image.data(),
+        static_cast<D3D12_RESOURCE_DIMENSION>(TEX_DIMENSION_TEXTURE2D)
+    };
+
+    auto texture = std::make_shared<Texture>();
+    m_Textures[name] = texture;
+    texture->Create(image_fmt, this);
+
+    *handle = texture;
+
+    return true;
+}
+
+bool TextureGroup::CreateShaderResourceView(
+    const TexturePtr& handle,
+    ResourceManager* resource_manager,
+    const ResourceDescHandle& res_desc_handle
+)
+{
+    if (!handle || resource_manager == nullptr || !res_desc_handle.Handle) {
+        return false;
+    }
+
+   handle->CreateShaderResourceView(resource_manager, res_desc_handle);
+
+    return true;
 }
 
 Texture::Texture()
@@ -108,17 +173,15 @@ Texture::Texture()
     m_ImageInfo(),
     m_TexBuff(nullptr),
     m_UploadBuff( nullptr ),
-    m_Parent( nullptr ),
-    m_ResourceDescHandle()
+    m_Parent( nullptr )
 {}
 
-bool Texture::Create(const ImageFmt& image, TextureGroup* group, const ResourceDescHandle& res_desc_handle)
+bool Texture::Create(const ImageFmt& image, TextureGroup* group)
 {
     m_ImageInfo = image;
     m_UploadBuff = CreateTemporaryUploadResource(image);
     m_TexBuff = CreateTextureBuffer(image);
     m_Parent = group;
-    m_ResourceDescHandle = res_desc_handle;
 
     if (m_UploadBuff == nullptr || m_TexBuff == nullptr) {
         return false;
@@ -130,15 +193,13 @@ bool Texture::Create(const ImageFmt& image, TextureGroup* group, const ResourceD
         return false;
     }
 
-    uint64_t size = 0;
     auto srcaddr = image.Pixels;
     auto rowpitch = image.RowPitchByte;
     for (int y = 0; y < image.Height; ++y) {
         std::copy_n(srcaddr, rowpitch, mapforimg);
 
         srcaddr += rowpitch;
-        mapforimg += rowpitch;
-        size += rowpitch;
+        mapforimg += AlignmentedSize(rowpitch, 256);
     }
     m_UploadBuff->Unmap(0, nullptr);
 
@@ -150,7 +211,7 @@ bool Texture::Create(const ImageFmt& image, TextureGroup* group, const ResourceD
     src.PlacedFootprint.Footprint.Width = image.Width;
     src.PlacedFootprint.Footprint.Height = image.Height;
     src.PlacedFootprint.Footprint.Depth = image.Depth;
-    src.PlacedFootprint.Footprint.RowPitch = image.RowPitchByte;
+    src.PlacedFootprint.Footprint.RowPitch = AlignmentedSize( image.RowPitchByte, 256 );
     src.PlacedFootprint.Footprint.Format = image.Format;
 
     D3D12_TEXTURE_COPY_LOCATION dst{};
@@ -173,14 +234,8 @@ bool Texture::Create(const ImageFmt& image, TextureGroup* group, const ResourceD
     cmdlist->ResourceBarrier(1, &barrier_desc);
 
     GraphicEngine::Instance().ExecCmdQueue();
-    CreateShaderResourceView();
 
     return true;
-}
-
-ResourceDescHandle Texture::GetResourceDescHandle() const
-{
-    return m_ResourceDescHandle;
 }
 
 ID3D12Resource* Texture::CreateTemporaryUploadResource(const ImageFmt& image)
@@ -201,7 +256,7 @@ ID3D12Resource* Texture::CreateTemporaryUploadResource(const ImageFmt& image)
     D3D12_RESOURCE_DESC upload_resdesc{};
     upload_resdesc.Format = DXGI_FORMAT_UNKNOWN;                    // 単なるデータの塊なのでUNKNOWN
     upload_resdesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;     // 単なるバッファーとして指定
-    upload_resdesc.Width = image.Size;
+    upload_resdesc.Width = image.Height * AlignmentedSize(image.RowPitchByte, 256);
     upload_resdesc.Height = 1;
     upload_resdesc.DepthOrArraySize = image.ArraySize;
     upload_resdesc.MipLevels = image.MipLevels;
@@ -277,7 +332,7 @@ ID3D12Resource* Texture::CreateTextureBuffer(const ImageFmt& image)
     return texbuff;
 }
 
-void Texture::CreateShaderResourceView()
+void Texture::CreateShaderResourceView(ResourceManager* resource_manager, const ResourceDescHandle& res_desc_handle)
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc{};
 
@@ -286,10 +341,9 @@ void Texture::CreateShaderResourceView()
     srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv_desc.Texture2D.MipLevels = 1;                   // ミップマップは使用しないので1
 
-    auto handle = m_Parent->GetTextureHandle(this);
     GraphicEngine::Instance().Device()->CreateShaderResourceView(
         m_TexBuff,
         &srv_desc,
-        m_Parent->TextureDescriptorHeapCPU(handle)
+        resource_manager->DescriptorHeapCPU(res_desc_handle)
     );
 }

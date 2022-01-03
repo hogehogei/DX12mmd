@@ -95,34 +95,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 
     MSG msg = {};
-    uint16_t incides[] =
-    {
-        0, 1, 2,
-        2, 1, 3
-    };
-
-    PMDData pmd;
-    if (!pmd.Open("Model/èââπÉ~ÉN.pmd")) {
-        return 1;
-    }
-
-    auto vertbuff = std::make_shared<VertexBufferPMD>();
-    if (!vertbuff->CreateVertexBuffer(pmd)) {
-        return 1;
-    }
-    auto idxbuff = std::make_shared<IndexBuffer>();
-    if (!idxbuff->CreateIndexBuffer(pmd)) {
-        return 1;
-    }
-
-    GraphicEngine::Instance().SetVertexBuffer(vertbuff);
-    GraphicEngine::Instance().SetIndexBuffer(idxbuff);
 
     if (!GraphicEngine::Instance().CreateGraphicPipeLine()) {
         return 1;
     }
-
-
 
     while (1) {
         if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
