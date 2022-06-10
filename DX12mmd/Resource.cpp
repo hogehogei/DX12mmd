@@ -145,9 +145,6 @@ bool ResourceManager::CreateDescriptorHeap( const ResourcePack& resouce_pack )
     if (result == S_OK) {
         m_DescHeap.push_back(descheap);
     }
-    else {
-        m_DescHeap.push_back(nullptr);
-    }
 
     return result == S_OK;
 }
