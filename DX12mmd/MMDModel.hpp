@@ -21,6 +21,11 @@ public:
     ConstantBufferPtr GetMaterialBuffer();
     const PMDData& GetPMDData() const;
 
+    void RecursiveMatrixMultiply(
+        const BoneTree::BoneNode* node, const DirectX::XMMATRIX& mat
+    );
+    std::vector<DirectX::XMMATRIX>& GetBoneMetricesForMotion();
+
 private:
 
     void CreateTextures();
@@ -33,6 +38,8 @@ private:
     VertexBufferPtr   m_VertBuff;
     IndexBufferPtr    m_IdxBuff;
     ConstantBufferPtr m_MaterialBuff;
+
+    std::vector<DirectX::XMMATRIX> m_BoneMetricesForMotion;  // モーション用ボーン行列
 
     TextureGroup      m_TextureManager;
     std::vector<TexturePtr> m_Textures;

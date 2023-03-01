@@ -1,4 +1,9 @@
+
+// for Windows problem that std::min conflict
+#define NOMINMAX
+
 #include <d3dx12.h>
+#include <algorithm>
 #include <vector>
 #include <wrl/client.h>
 
@@ -145,6 +150,7 @@ void GraphicEngine::FlipWindow()
     m_Matrix.Eye = eye;
 
     m_ConstBuff.Write(&m_Matrix, sizeof(m_Matrix));
+
 #endif
 
     // バックバッファーのレンダーターゲットビューを、これから利用するレンダーターゲットビューに設定
@@ -308,6 +314,46 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
     if (!m_ConstBuff.Create(&m_Resource, sizeof(m_Matrix), 1, m_Resource.ResourceHandle("MatrixResource"))) {
         return false;
     }
+
+    // モーションテスト
+    // ボーン情報をコピー
+    auto& bone_metrices = m_Model.GetBoneMetricesForMotion();
+
+    // 試しに腕を回転
+    auto arm_bone = m_Model.GetPMDData().BoneFromName("左腕");
+    if (arm_bone) {
+        const auto& pos = arm_bone.value().BoneStartPos;
+        auto mat =
+            DirectX::XMMatrixTranslation(-pos.x, -pos.y, -pos.z) *
+            XMMatrixRotationZ(DirectX::XM_PIDIV2) *
+            DirectX::XMMatrixTranslation(pos.x, pos.y, pos.z);
+
+        bone_metrices[arm_bone.value().BoneIdx] = mat;
+    }
+    // 試しにひじを回転
+#if 1
+    auto elbow_bone = m_Model.GetPMDData().BoneFromName("左ひじ");
+    if (elbow_bone) {
+        const auto& pos = elbow_bone.value().BoneStartPos;
+        auto mat =
+            DirectX::XMMatrixTranslation(-pos.x, -pos.y, -pos.z) *
+            XMMatrixRotationZ(-DirectX::XM_PIDIV2) *
+            DirectX::XMMatrixTranslation(pos.x, pos.y, pos.z);
+
+        bone_metrices[elbow_bone.value().BoneIdx] = mat;
+    }
+#endif
+
+    auto root_bone = m_Model.GetPMDData().BoneFromName("センター");
+    if (root_bone) {
+        m_Model.RecursiveMatrixMultiply(&(root_bone.value()), DirectX::XMMatrixIdentity());
+    }
+
+    std::copy_n(
+        bone_metrices.begin(),
+        std::min<size_t>(bone_metrices.size(), k_BoneMetricesNum),
+        &m_Matrix.Bones[0]
+    );
 
     return true;
 }

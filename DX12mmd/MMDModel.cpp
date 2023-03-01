@@ -26,7 +26,8 @@ MMDModel::MMDModel()
     m_PMDData(),
     m_VertBuff(std::make_shared<VertexBufferPMD>()),
     m_IdxBuff(),
-    m_MaterialBuff()
+    m_MaterialBuff(),
+    m_BoneMetricesForMotion()
 {}
 
 bool MMDModel::Create(ResourceManager* resource_manager, const std::string& model_name, const std::filesystem::path& filepath)
@@ -67,6 +68,10 @@ bool MMDModel::Create(ResourceManager* resource_manager, const std::string& mode
     ConstantBuffer::WriterFunc func = WriteMaterial;
     m_MaterialBuff->Write((void*)&m_PMDData, func);
 
+    // GPU転送用ボーン行列バッファ初期化
+    m_BoneMetricesForMotion.resize(k_BoneMetricesNum);
+    std::fill(m_BoneMetricesForMotion.begin(), m_BoneMetricesForMotion.end(), DirectX::XMMatrixIdentity());
+
     CreateTextures();
 
     return true;
@@ -90,6 +95,27 @@ ConstantBufferPtr MMDModel::GetMaterialBuffer()
 const PMDData& MMDModel::GetPMDData() const
 {
     return m_PMDData;
+}
+
+void MMDModel::RecursiveMatrixMultiply(
+    const BoneTree::BoneNode* node, const DirectX::XMMATRIX& mat
+)
+{
+    if (!node) {
+        return;
+    }
+
+    m_BoneMetricesForMotion[node->BoneIdx] *= mat;
+    
+    for (const auto child_node : node->GetChildlen())
+    {
+        RecursiveMatrixMultiply(child_node, m_BoneMetricesForMotion[node->BoneIdx]);
+    }
+}
+
+std::vector<DirectX::XMMATRIX>& MMDModel::GetBoneMetricesForMotion()
+{
+    return m_BoneMetricesForMotion;
 }
 
 void MMDModel::CreateTextures()

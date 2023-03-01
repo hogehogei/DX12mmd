@@ -17,6 +17,8 @@ cbuffer cbuff0 : register(b0)
     matrix view;        // ビュー行列
     matrix proj;        // プロジェクション行列
     float3 eye;         // 視点座標
+
+    matrix bones[256];  // ボーン行列
 };
 
 cbuffer Material : register(b1)

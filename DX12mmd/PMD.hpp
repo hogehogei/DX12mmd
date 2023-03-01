@@ -2,9 +2,13 @@
 
 #include <cstdint>
 #include <vector>
+#include <map>
 #include <string>
+#include <optional>
 #include <filesystem>
 #include <DirectXMath.h>
+
+#include "Matrix.hpp"
 
 struct PMDHeader
 {
@@ -44,6 +48,57 @@ struct PMDMaterial
 };
 #pragma pack()
 
+#pragma pack(1)
+struct PMDBone
+{
+    char BoneName[20];                  // ボーン名
+    uint16_t ParentBoneNo;              // 親ボーン番号
+    uint16_t NextBoneNo;                // 先端のボーン番号
+    uint8_t  BoneType;                  // ボーン種別
+    uint16_t IkBoneNo;                  // IKボーン番号
+    DirectX::XMFLOAT3 Pos;              // ボーンの基準点座標
+};
+#pragma pack()
+
+class BoneTree
+{
+public:
+    class BoneNode
+    {
+    public:
+
+        BoneNode();
+        BoneNode(int boneidx, const PMDBone& bone);
+
+        void AddChild(const BoneNode* bonenode);
+        const std::vector<const BoneNode*>& GetChildlen() const;
+
+        int               BoneIdx;           // ボーンインデックス
+        DirectX::XMFLOAT3 BoneStartPos;      // ボーン基準点（回転の中心）
+        DirectX::XMFLOAT3 BoneEndPos;        // ボーン先端点（実際のスキニングには影響しない）
+
+    private:
+
+        std::vector<const BoneNode*> m_Childlen;   // 子ノード
+    };
+
+    typedef std::optional<BoneTree::BoneNode> BoneNodeResult;
+
+public:
+
+    BoneTree();
+
+    void Create(const std::vector<PMDBone>& bones);
+    BoneNodeResult GetBoneNode(const std::string& bonename) const;
+
+private:
+
+    void CreateBoneTree(const std::vector<PMDBone>& bones);
+
+    std::map<std::string, BoneNode> m_BoneNodeTable;
+};
+
+
 struct MaterialForHlsl
 {
     DirectX::XMFLOAT3 Diffuse;           // ディフューズ色
@@ -71,6 +126,7 @@ class PMDData
 {
 public:
     static constexpr uint32_t k_ShaderMaterialSize = sizeof(MaterialForHlsl);
+    static constexpr uint32_t k_PMDBoneMetricesNum = k_BoneMetricesNum;
 
 public:
 
@@ -91,6 +147,10 @@ public:
     uint64_t MaterialBuffSize() const;
     const std::vector<Material>& MaterialData() const;
 
+    uint32_t BoneNum() const;
+    uint64_t BoneBuffSize() const;
+    BoneTree::BoneNodeResult BoneFromName(const std::string& bonename) const;
+
 private:
 
     void CopyMaterialsData();
@@ -98,9 +158,16 @@ private:
     PMDHeader m_PMDHeader;
     uint32_t  m_VertexNum;
     std::vector<uint8_t> m_VerticesBuff;
+
     uint32_t  m_IndexNum;
     std::vector<uint8_t> m_IndicesBuff;
+    
     uint32_t  m_MaterialNum;
     std::vector<PMDMaterial> m_MaterialBuff;
     std::vector<Material> m_Materials;
+
+    // ボーン管理用変数
+    uint16_t  m_BoneNum;                                  // ボーン数
+    std::vector<PMDBone> m_BonesBuff;                     // ボーン保存用バッファ
+    BoneTree  m_BoneTree;                                 // ボーン管理クラス
 };
