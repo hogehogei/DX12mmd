@@ -148,12 +148,13 @@
     <ClCompile Include="FilePath.cpp" />
     <ClCompile Include="IndexBuffer.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="MMDModel.cpp" />
+    <ClCompile Include="PMDActor.cpp" />
     <ClCompile Include="PMD.cpp" />
     <ClCompile Include="Resource.cpp" />
     <ClCompile Include="Shader.cpp" />
     <ClCompile Include="Texture.cpp" />
     <ClCompile Include="VertexBuffer.cpp" />
+    <ClCompile Include="VMD.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AppManager.hpp" />
@@ -162,13 +163,14 @@
     <ClInclude Include="FilePath.hpp" />
     <ClInclude Include="IndexBuffer.hpp" />
     <ClInclude Include="Matrix.hpp" />
-    <ClInclude Include="MMDModel.hpp" />
+    <ClInclude Include="PMDActor.hpp" />
     <ClInclude Include="PMD.hpp" />
     <ClInclude Include="Resource.hpp" />
     <ClInclude Include="Shader.hpp" />
     <ClInclude Include="Texture.hpp" />
     <ClInclude Include="Utility.hpp" />
     <ClInclude Include="VertexBuffer.hpp" />
+    <ClInclude Include="VMD.hpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="BasicPixelShader.hlsl">

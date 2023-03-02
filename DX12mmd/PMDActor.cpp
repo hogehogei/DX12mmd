@@ -1,6 +1,8 @@
 #include <sstream>
-#include "MMDModel.hpp"
+#include "PMDActor.hpp"
 #include "FilePath.hpp"
+
+#pragma comment(lib, "winmm.lib")
 
 namespace
 {
@@ -18,9 +20,10 @@ namespace
     }
 }
 
-MMDModel::MMDModel()
+PMDActor::PMDActor()
     :
-    m_ModelPath(),
+    m_PMDModelPath(),
+    m_VMDMotionPath(),
     m_ModelName(),
     m_ResourceManager(nullptr),
     m_PMDData(),
@@ -30,14 +33,24 @@ MMDModel::MMDModel()
     m_BoneMetricesForMotion()
 {}
 
-bool MMDModel::Create(ResourceManager* resource_manager, const std::string& model_name, const std::filesystem::path& filepath)
+bool PMDActor::Create(
+    ResourceManager* resource_manager, 
+    const std::string& model_name, 
+    const std::filesystem::path& pmd_filepath,
+    const std::filesystem::path& vmd_filepath
+)
 {
-    if (!m_PMDData.Open(filepath)) {
+    if (!m_PMDData.Open(pmd_filepath)) {
         return false;
     }
+    if (!m_VMDData.Open(vmd_filepath)) {
+        return false;
+    }
+
     m_ResourceManager = resource_manager;
     m_TextureManager.SetShaderResource(m_ResourceManager);
-    m_ModelPath = filepath;
+    m_PMDModelPath = pmd_filepath;
+    m_VMDMotionPath = vmd_filepath;
     m_ModelName = model_name;
 
     auto vertbuff = std::make_shared<VertexBufferPMD>();
@@ -77,27 +90,32 @@ bool MMDModel::Create(ResourceManager* resource_manager, const std::string& mode
     return true;
 }
 
-VertexBufferPtr MMDModel::GetVertexBuffer()
+VertexBufferPtr PMDActor::GetVertexBuffer()
 {
     return m_VertBuff;
 }
 
-IndexBufferPtr MMDModel::GetIndexBuffer()
+IndexBufferPtr PMDActor::GetIndexBuffer()
 {
     return m_IdxBuff;
 }
 
-ConstantBufferPtr MMDModel::GetMaterialBuffer()
+ConstantBufferPtr PMDActor::GetMaterialBuffer()
 {
     return m_MaterialBuff;
 }
 
-const PMDData& MMDModel::GetPMDData() const
+const PMDData& PMDActor::GetPMDData() const
 {
     return m_PMDData;
 }
 
-void MMDModel::RecursiveMatrixMultiply(
+const VMDMotionTable& PMDActor::GetVMDMotionTable() const
+{
+    return m_VMDData;
+}
+
+void PMDActor::RecursiveMatrixMultiply(
     const BoneTree::BoneNode* node, const DirectX::XMMATRIX& mat
 )
 {
@@ -113,12 +131,51 @@ void MMDModel::RecursiveMatrixMultiply(
     }
 }
 
-std::vector<DirectX::XMMATRIX>& MMDModel::GetBoneMetricesForMotion()
+std::vector<DirectX::XMMATRIX>& PMDActor::GetBoneMetricesForMotion()
 {
     return m_BoneMetricesForMotion;
 }
 
-void MMDModel::CreateTextures()
+void PMDActor::PlayAnimation()
+{
+    m_AnimeStartTimeMs = timeGetTime();
+}
+
+void PMDActor::MotionUpdate()
+{
+    DWORD elapsed_time = timeGetTime() - m_AnimeStartTimeMs;
+    DWORD frame_no = 30 * (elapsed_time / 1000.0f);
+
+    if (frame_no > m_VMDData.MaxKeyFrameNo()) {
+        PlayAnimation();
+        elapsed_time = 0;
+    }
+
+    std::fill(m_BoneMetricesForMotion.begin(), m_BoneMetricesForMotion.end(), DirectX::XMMatrixIdentity());
+    VMDMotionTable::NowMotionListPtr motions = m_VMDData.GetNowMotionList(frame_no);
+
+    for (const auto& motion : *motions) {
+        auto node = m_PMDData.BoneFromName(motion.Name);
+        if (node) {
+            auto idx = node.value().BoneIdx;
+            auto& pos = node.value().BoneStartPos;
+
+            auto mat =
+                DirectX::XMMatrixTranslation(-pos.x, -pos.y, -pos.z) *
+                motion.Slerp(frame_no) *
+                DirectX::XMMatrixTranslation(pos.x, pos.y, pos.z);
+
+            m_BoneMetricesForMotion[idx] = mat;
+        }
+    }
+
+    auto root_bone = m_PMDData.BoneFromName("ƒZƒ“ƒ^[");
+    if (root_bone) {
+        RecursiveMatrixMultiply(&(root_bone.value()), DirectX::XMMatrixIdentity());
+    }
+}
+
+void PMDActor::CreateTextures()
 {
     const auto& materials = m_PMDData.MaterialData();
     auto shader_resource_handle = m_ResourceManager->ResourceHandle(m_ModelName);
@@ -128,7 +185,7 @@ void MMDModel::CreateTextures()
         TexturePtr texture_handle;
         TexturePath texture_path;
 
-        texture_path = GetTexturePathFromModelAndTexPath(m_ModelPath, filepath);
+        texture_path = GetTexturePathFromModelAndTexPath(m_PMDModelPath, filepath);
         
         shader_resource_handle.Offset += 1;
         if (!texture_path.TexPath.empty()) {
@@ -192,7 +249,7 @@ void MMDModel::CreateTextures()
     }
 }
 
-void MMDModel::ReadToonTexture(const Material& material, const ResourceDescHandle& handle)
+void PMDActor::ReadToonTexture(const Material& material, const ResourceDescHandle& handle)
 {
     std::ostringstream os;
     std::filesystem::path filepath;

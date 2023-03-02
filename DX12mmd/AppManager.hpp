@@ -12,7 +12,7 @@
 #include "Texture.hpp"
 #include "Resource.hpp"
 #include "Matrix.hpp"
-#include "MMDModel.hpp"
+#include "PMDActor.hpp"
 
 class GraphicEngine
 {
@@ -75,7 +75,7 @@ private:
     ConstantBuffer m_ConstBuff;
 
     SceneMatrix m_Matrix;
-    MMDModel m_Model;
+    PMDActor m_Model;
 
     ResourceManager m_Resource;
     TextureGroup m_Textures;

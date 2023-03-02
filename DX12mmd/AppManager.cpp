@@ -153,6 +153,16 @@ void GraphicEngine::FlipWindow()
 
 #endif
 
+    // モデル描写準備
+    m_Model.MotionUpdate();
+    // アニメーション変換後のボーン変換行列をシェーダーに渡す
+    auto& bone_metrices = m_Model.GetBoneMetricesForMotion();
+    std::copy_n(
+        bone_metrices.begin(),
+        std::min<size_t>(bone_metrices.size(), k_BoneMetricesNum),
+        &m_Matrix.Bones[0]
+    );
+
     // バックバッファーのレンダーターゲットビューを、これから利用するレンダーターゲットビューに設定
     auto bbidx = m_Swapchain->GetCurrentBackBufferIndex();
     auto rtvH = m_RtvHeaps->GetCPUDescriptorHandleForHeapStart();
@@ -304,7 +314,7 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
     //    return false;
     //}
 
-    if (!m_Model.Create(&m_Resource, "Miku", "Model/初音ミク.pmd")) {
+    if (!m_Model.Create(&m_Resource, "Miku", "Model/初音ミク.pmd", "Model/swing.vmd")) {
         return false;
     }
 
@@ -315,10 +325,28 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
         return false;
     }
 
+    // アニメーションスタート
+    m_Model.PlayAnimation();
+
+#if 0
     // モーションテスト
     // ボーン情報をコピー
     auto& bone_metrices = m_Model.GetBoneMetricesForMotion();
 
+    const auto& vmd_motion_table = m_Model.GetVMDMotionTable().GetMotionTable();
+    for (const auto& bone_motion : vmd_motion_table) {
+        const auto& node = m_Model.GetPMDData().BoneFromName(bone_motion.first);
+        const auto& pos = node->BoneStartPos;
+
+        auto mat =
+            DirectX::XMMatrixTranslation(-pos.x, -pos.y, -pos.z) *
+            DirectX::XMMatrixRotationQuaternion(bone_motion.second[0].Quaternion) *
+            DirectX::XMMatrixTranslation(pos.x, pos.y, pos.z);
+
+        bone_metrices[node->BoneIdx] = mat;
+    }
+#endif
+#if 0
     // 試しに腕を回転
     auto arm_bone = m_Model.GetPMDData().BoneFromName("左腕");
     if (arm_bone) {
@@ -331,7 +359,6 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
         bone_metrices[arm_bone.value().BoneIdx] = mat;
     }
     // 試しにひじを回転
-#if 1
     auto elbow_bone = m_Model.GetPMDData().BoneFromName("左ひじ");
     if (elbow_bone) {
         const auto& pos = elbow_bone.value().BoneStartPos;
@@ -342,7 +369,6 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
 
         bone_metrices[elbow_bone.value().BoneIdx] = mat;
     }
-#endif
 
     auto root_bone = m_Model.GetPMDData().BoneFromName("センター");
     if (root_bone) {
@@ -354,6 +380,7 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
         std::min<size_t>(bone_metrices.size(), k_BoneMetricesNum),
         &m_Matrix.Bones[0]
     );
+#endif
 
     return true;
 }
