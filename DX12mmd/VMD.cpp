@@ -2,10 +2,17 @@
 
 #include <fstream>
 
-MotionKeyFrame::MotionKeyFrame(uint32_t frame_no, DirectX::XMVECTOR q)
+MotionKeyFrame::MotionKeyFrame(
+    uint32_t frame_no, 
+    const DirectX::XMVECTOR& q, 
+    const DirectX::XMFLOAT2& p1, 
+    const DirectX::XMFLOAT2& p2
+)
     :
     FrameNo(frame_no),
-    Quaternion(q)
+    Quaternion(q),
+    RotateBezierP1(p1),
+    RotateBezierP2(p2)
 {}
 
 VMDMotionTable::VMDMotionTable()
@@ -13,6 +20,61 @@ VMDMotionTable::VMDMotionTable()
     m_MotionDataNum(0),
     m_MotionList()
 {}
+
+double VMDMotionTable::MotionInterpolater::GetYFromXOnBezier(double x, const DirectX::XMFLOAT2& p1, const DirectX::XMFLOAT2& p2, uint8_t count) const
+{
+    // ベジェ曲線が直線補間なら計算不要とする。
+    constexpr double e = std::numeric_limits<double>::epsilon();
+    if ((std::abs(p1.x - p1.y) < e) && (std::abs(p2.x - p2.y) < e)) {
+        return x;
+    }
+
+    double t = x;
+    const float k0 = 1.0 + (3.0 * p1.x) - (3.0 * p2.x);
+    const float k1 = (3.0 * p2.x) - (6.0 * p1.x);
+    const float k2 = 3.0 * p1.x;
+
+    // 判定打切り誤差
+    constexpr double stop_eps = 0.0005;
+
+    // x から tを近似で求める
+    for (int i = 0; i < count; ++i) {
+        // f(t)を求める
+        double ft = (k0 * t * t * t) + (k1 * t * t) + (k2 * t) - x;
+        // 結果が判定打切り誤差内だったら打ち切る
+        if (ft < stop_eps && ft > stop_eps) {
+            break;
+        }
+
+        t -= ft / 2;
+    }
+
+    double r = 1 - t;
+    return (t * t * t) + (3 * t * t * r * p2.y) + (3 * t * r * r * p1.y);
+}
+
+DirectX::XMMATRIX VMDMotionTable::MotionInterpolater::Slerp(uint32_t frame_no) const
+{
+    if (Begin.FrameNo == End.FrameNo) {
+        return DirectX::XMMatrixRotationQuaternion(Begin.Quaternion);
+    }
+
+    float t = static_cast<float>(frame_no - Begin.FrameNo) / static_cast<float>(End.FrameNo - Begin.FrameNo);
+    t = GetYFromXOnBezier(t, Begin.RotateBezierP1, Begin.RotateBezierP2, 12);
+
+#if 0
+    DirectX::XMMATRIX rotation =
+        DirectX::XMMatrixRotationQuaternion(Begin.Quaternion) * (1.0f - t) +
+        DirectX::XMMatrixRotationQuaternion(End.Quaternion) * t;
+#endif
+
+    DirectX::XMMATRIX rotation =
+        DirectX::XMMatrixRotationQuaternion(
+            DirectX::XMQuaternionSlerp(Begin.Quaternion, End.Quaternion, t)
+        );
+
+    return rotation;
+}
 
 bool VMDMotionTable::Open(const std::filesystem::path& filename)
 {
@@ -36,15 +98,16 @@ bool VMDMotionTable::Open(const std::filesystem::path& filename)
             sizeof(motion.Quaternion) +
             sizeof(motion.Bezier)
         );
-
-
     }
 
     // VMDのモーションデータを、実際に使用するモーションテーブルへ変換
     for (auto& vmd_motion : vmd_motion_data) {
         m_MotionList[vmd_motion.BoneName].emplace_back(
             MotionKeyFrame(
-                vmd_motion.FrameNo, DirectX::XMLoadFloat4(&vmd_motion.Quaternion)
+                vmd_motion.FrameNo, 
+                DirectX::XMLoadFloat4(&vmd_motion.Quaternion),
+                DirectX::XMFLOAT2((vmd_motion.Bezier[3] / 127.0f), (vmd_motion.Bezier[7] / 127.0f)),
+                DirectX::XMFLOAT2((vmd_motion.Bezier[11] / 127.0f), (vmd_motion.Bezier[15] / 127.0f))
             )
         );
 

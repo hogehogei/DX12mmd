@@ -24,8 +24,10 @@ public:
     uint32_t FrameNo;               // アニメーション開始からのフレーム番号
     DirectX::XMVECTOR Quaternion;   // クォータニオン
 
+    DirectX::XMFLOAT2 RotateBezierP1;       // 回転補間ベジェ制御点p1
+    DirectX::XMFLOAT2 RotateBezierP2;       // 回転補間ベジェ制御点p2
 
-    MotionKeyFrame(uint32_t frame_no, DirectX::XMVECTOR q);
+    MotionKeyFrame(uint32_t frame_no, const DirectX::XMVECTOR& q, const DirectX::XMFLOAT2& p1, const DirectX::XMFLOAT2& p2);
 };
 
 class VMDMotionTable
@@ -36,26 +38,8 @@ public:
     {
     public:
 
-        DirectX::XMMATRIX Slerp(uint32_t frame_no) const
-        {
-            if (Begin.FrameNo == End.FrameNo) {
-                return DirectX::XMMatrixRotationQuaternion(Begin.Quaternion);
-            }
-
-            float t = static_cast<float>(frame_no - Begin.FrameNo) / static_cast<float>(End.FrameNo - Begin.FrameNo);
-#if 0
-            DirectX::XMMATRIX rotation =
-                DirectX::XMMatrixRotationQuaternion(Begin.Quaternion) * (1.0f - t) +
-                DirectX::XMMatrixRotationQuaternion(End.Quaternion)   * t;
-#endif
-
-            DirectX::XMMATRIX rotation =
-                DirectX::XMMatrixRotationQuaternion(
-                    DirectX::XMQuaternionSlerp(Begin.Quaternion, End.Quaternion, t)
-                );
-
-            return rotation;
-        }
+        double GetYFromXOnBezier(double x, const DirectX::XMFLOAT2& p1, const DirectX::XMFLOAT2& p2, uint8_t count) const;
+        DirectX::XMMATRIX Slerp(uint32_t frame_no) const;
 
         std::string    Name;
         MotionKeyFrame Begin;

@@ -314,7 +314,7 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
     //    return false;
     //}
 
-    if (!m_Model.Create(&m_Resource, "Miku", "Model/初音ミク.pmd", "Model/swing.vmd")) {
+    if (!m_Model.Create(&m_Resource, "Miku", "Model/初音ミク.pmd", "Model/motion.vmd")) {
         return false;
     }
 
