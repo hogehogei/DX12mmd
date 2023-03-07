@@ -60,6 +60,18 @@ struct PMDBone
 };
 #pragma pack()
 
+enum class BoneType : uint32_t 
+{
+    Rotation   = 0,         // 回転
+    RotAndMove,             // 回転&移動
+    IK,                     // IK
+    Undefined,              // 未定義
+    IKChild,                // IK影響ボーン
+    RotationChild,          // 回転影響ボーン
+    IKDestination,          // IK接続先
+    Invisible,              // 見えないボーン
+};
+
 class BoneTree
 {
 public:
@@ -73,7 +85,9 @@ public:
         void AddChild(const BoneNode* bonenode);
         const std::vector<const BoneNode*>& GetChildlen() const;
 
-        int               BoneIdx;           // ボーンインデックス
+        uint32_t          BoneIdx;           // ボーンインデックス
+        uint32_t          BoneType;          // ボーン種別
+        uint32_t          ikParentBone;      // IK親ボーン
         DirectX::XMFLOAT3 BoneStartPos;      // ボーン基準点（回転の中心）
         DirectX::XMFLOAT3 BoneEndPos;        // ボーン先端点（実際のスキニングには影響しない）
 
@@ -82,6 +96,14 @@ public:
         std::vector<const BoneNode*> m_Childlen;   // 子ノード
     };
 
+    struct NamedBone {
+        NamedBone()
+            : BoneName(), Node() {}
+        NamedBone(const std::string& name, const BoneNode& bone)
+            : BoneName(name), Node(bone) {}
+        std::string BoneName;
+        BoneNode    Node;
+    };
     typedef std::optional<BoneTree::BoneNode> BoneNodeResult;
 
 public:
@@ -90,12 +112,26 @@ public:
 
     void Create(const std::vector<PMDBone>& bones);
     BoneNodeResult GetBoneNode(const std::string& bonename) const;
+    std::string GetBoneNameFromIdx(uint16_t idx) const;
 
 private:
 
     void CreateBoneTree(const std::vector<PMDBone>& bones);
 
-    std::map<std::string, BoneNode> m_BoneNodeTable;
+    std::vector<PMDBone>      m_RawBonesData;
+    std::vector<NamedBone>    m_BoneNodes;
+    //std::map<std::string, BoneNode> m_BoneNodeTable;
+};
+
+struct PMDIK
+{
+public:
+
+    uint16_t BoneIdx;                    // IK対象のボーンを示す
+    uint16_t TargetIdx;                  // ターゲットに近づけるためのボーンのインデックス
+    uint16_t Iterations;                 // 試行回数
+    float    Limit;                      // 1回あたりの回転制限
+    std::vector<uint16_t> NodeIdxes;     // 間のノード番号
 };
 
 
@@ -154,6 +190,8 @@ public:
 private:
 
     void CopyMaterialsData();
+    void ReadIKData(std::ifstream& ifs);
+    void DebugPrintIKData();
 
     PMDHeader m_PMDHeader;
     uint32_t  m_VertexNum;
@@ -170,4 +208,8 @@ private:
     uint16_t  m_BoneNum;                                  // ボーン数
     std::vector<PMDBone> m_BonesBuff;                     // ボーン保存用バッファ
     BoneTree  m_BoneTree;                                 // ボーン管理クラス
+
+    // IK管理用変数
+    uint16_t  m_IkNum;                                    // IK数
+    std::vector<PMDIK>   m_PMDIkData;                     // IK読み出しデータ
 };

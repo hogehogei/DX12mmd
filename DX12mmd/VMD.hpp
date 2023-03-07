@@ -24,10 +24,17 @@ public:
     uint32_t FrameNo;               // アニメーション開始からのフレーム番号
     DirectX::XMVECTOR Quaternion;   // クォータニオン
 
+    DirectX::XMFLOAT3 Offset;               // IKの初期座標からのオフセット情報
     DirectX::XMFLOAT2 RotateBezierP1;       // 回転補間ベジェ制御点p1
     DirectX::XMFLOAT2 RotateBezierP2;       // 回転補間ベジェ制御点p2
 
-    MotionKeyFrame(uint32_t frame_no, const DirectX::XMVECTOR& q, const DirectX::XMFLOAT2& p1, const DirectX::XMFLOAT2& p2);
+    MotionKeyFrame(
+        uint32_t frame_no, 
+        const DirectX::XMVECTOR& q,
+        const DirectX::XMFLOAT3& offset,
+        const DirectX::XMFLOAT2& p1, 
+        const DirectX::XMFLOAT2& p2
+    );
 };
 
 class VMDMotionTable

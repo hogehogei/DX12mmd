@@ -38,7 +38,8 @@ const std::vector<const BoneTree::BoneNode*>& BoneTree::BoneNode::GetChildlen() 
 }
 
 BoneTree::BoneTree()
-    : m_BoneNodeTable()
+    : m_RawBonesData(),
+      m_BoneNodes()
 {}
 
 void BoneTree::Create(const std::vector<PMDBone>& bones)
@@ -48,35 +49,75 @@ void BoneTree::Create(const std::vector<PMDBone>& bones)
 
 BoneTree::BoneNodeResult BoneTree::GetBoneNode(const std::string& bonename) const
 {
+    auto result = std::find_if(
+        m_BoneNodes.begin(),
+        m_BoneNodes.end(),
+        [bonename](const NamedBone& bone) {
+            return bone.BoneName == bonename;
+        }
+    );
+
+    if (result != m_BoneNodes.end()) {
+        return result->Node;
+    }
+
+    return std::nullopt;
+
+#if 0
     auto result = m_BoneNodeTable.find(bonename);
     if (result == m_BoneNodeTable.end()) {
         return std::nullopt;
     }
     return result->second;
+#endif
+}
+
+std::string BoneTree::GetBoneNameFromIdx(uint16_t idx) const
+{
+    if (idx >= m_BoneNodes.size()) {
+        return "";
+    }
+    return m_BoneNodes[idx].BoneName;
+#if 0
+    auto itr = std::find_if(
+        m_BoneNodeTable.begin(),
+        m_BoneNodeTable.end(),
+        [idx](const std::pair<std::string, BoneNode>& pair) {
+            return pair.second.BoneIdx == idx;
+        }
+    );
+
+    if (itr != m_BoneNodeTable.end()) {
+        return itr->first;
+    }
+
+    return "";
+#endif
 }
 
 void BoneTree::CreateBoneTree(const std::vector<PMDBone>& bones)
 {
-    std::vector<std::string> bone_names(bones.size());
+    m_RawBonesData = bones;
 
     // ボーンノードマップを作る
-    for (int idx = 0; idx < bones.size(); ++idx) {
-        auto& bone = bones[idx];
-        bone_names[idx] = bone.BoneName;
-
-        m_BoneNodeTable.emplace(bone.BoneName, BoneNode(idx, bone));
+    m_BoneNodes.resize(bones.size());
+    for (int idx = 0; idx < m_RawBonesData.size(); ++idx) {
+        m_BoneNodes[idx] = NamedBone(
+            std::string(bones[idx].BoneName),
+            BoneNode(idx, bones[idx])
+        );
     }
 
     // 親子関係を構築する
-    for (auto& bone : bones) {
+    for (int idx = 0; idx < bones.size(); ++idx) {
         // 親インデックスをチェック（ありえない番号なら飛ばす）
-        if (bone.ParentBoneNo >= bones.size()) {
+        if (bones[idx].ParentBoneNo >= bones.size()) {
             continue;
         }
 
-        // 親ノードを名前で検索して、自分を子ノードとして追加
-        auto parent_name = bone_names[bone.ParentBoneNo];
-        m_BoneNodeTable[parent_name].AddChild(&m_BoneNodeTable[bone.BoneName]);
+        // 親ノードに対して、自分を子ノードとして追加
+        auto& parent_bone = m_BoneNodes[bones[idx].ParentBoneNo];
+        parent_bone.Node.AddChild(&(m_BoneNodes[idx].Node));
     }
 }
 
@@ -109,8 +150,8 @@ bool PMDData::Open(const std::filesystem::path& filename)
     ifs.read(reinterpret_cast<char*>(&m_VertexNum), sizeof(m_VertexNum));
     m_VerticesBuff.resize(VertexBuffSize());
 
-    std::wostringstream os;
-    os << "VertexNum: " << m_VertexNum << std::endl;
+    //std::ostringstream os;
+    //os << "VertexNum: " << m_VertexNum << std::endl;
 
     // 頂点バッファ読み込み
     char* ptr = reinterpret_cast<char*>(&m_VerticesBuff[0]);
@@ -122,7 +163,7 @@ bool PMDData::Open(const std::filesystem::path& filename)
 
         ptr += sizeof(PMDVertex);
     }
-    //::OutputDebugString(reinterpret_cast<LPCWSTR>(os.str().c_str()));
+    //::OutputDebugStringA(os.str().c_str());
 
     // 頂点インデックス読み込み
     ifs.read(reinterpret_cast<char*>(&m_IndexNum), sizeof(m_IndexNum));
@@ -139,6 +180,10 @@ bool PMDData::Open(const std::filesystem::path& filename)
     m_BonesBuff.resize(m_BoneNum);
     ifs.read(reinterpret_cast<char*>(m_BonesBuff.data()), BoneBuffSize());
     m_BoneTree.Create(m_BonesBuff);
+
+    // IK読み込み
+    ifs.read(reinterpret_cast<char*>(&m_IkNum), sizeof(m_IkNum));
+    ReadIKData(ifs);
 
     CopyMaterialsData();
 
@@ -230,5 +275,45 @@ void PMDData::CopyMaterialsData()
         m_Materials[i].Additional.TexturePath += m_MaterialBuff[i].TexFilePath;
         m_Materials[i].Additional.ToonIdx = m_MaterialBuff[i].ToonIdx;
         //std::copy_n(m_MaterialBuff[i].TexFilePath, PMDMaterial::k_TextureFilePathLen, m_Materials[i].Additional.TexturePath.begin());
+    }
+}
+
+void PMDData::ReadIKData( std::ifstream& ifs )
+{
+    m_PMDIkData.resize(m_IkNum);
+
+    for (auto& ik : m_PMDIkData) {
+        ifs.read(reinterpret_cast<char*>(&ik.BoneIdx), sizeof(ik.BoneIdx));
+        ifs.read(reinterpret_cast<char*>(&ik.TargetIdx), sizeof(ik.TargetIdx));
+
+        uint8_t chain_len = 0;      // 間にいくつノードがあるか？
+        ifs.read(reinterpret_cast<char*>(&chain_len), sizeof(chain_len));
+        ik.NodeIdxes.resize(chain_len);
+        ifs.read(reinterpret_cast<char*>(&ik.Iterations), sizeof(ik.Iterations));
+        ifs.read(reinterpret_cast<char*>(&ik.Limit), sizeof(ik.Limit));
+
+        if (chain_len == 0) {
+            continue;
+        }
+        ifs.read(reinterpret_cast<char*>(ik.NodeIdxes.data()), sizeof(ik.NodeIdxes[0]) * chain_len);
+    }
+
+    DebugPrintIKData();
+}
+
+void PMDData::DebugPrintIKData()
+{
+
+    for (auto& ik : m_PMDIkData) {
+        std::ostringstream oss;
+        oss << "IKBoneNum = " << ik.BoneIdx
+            << ":" << m_BoneTree.GetBoneNameFromIdx(ik.BoneIdx) << std::endl;
+
+        for (auto& node : ik.NodeIdxes) {
+            oss << "\tNodeBone = " << node
+                << ":" << m_BoneTree.GetBoneNameFromIdx(ik.BoneIdx) << std::endl;
+        }
+
+        ::OutputDebugStringA(oss.str().c_str());
     }
 }

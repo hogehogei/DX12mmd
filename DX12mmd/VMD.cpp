@@ -5,12 +5,14 @@
 MotionKeyFrame::MotionKeyFrame(
     uint32_t frame_no, 
     const DirectX::XMVECTOR& q, 
+    const DirectX::XMFLOAT3& offset,
     const DirectX::XMFLOAT2& p1, 
     const DirectX::XMFLOAT2& p2
 )
     :
     FrameNo(frame_no),
     Quaternion(q),
+    Offset(),
     RotateBezierP1(p1),
     RotateBezierP2(p2)
 {}
@@ -106,6 +108,7 @@ bool VMDMotionTable::Open(const std::filesystem::path& filename)
             MotionKeyFrame(
                 vmd_motion.FrameNo, 
                 DirectX::XMLoadFloat4(&vmd_motion.Quaternion),
+                DirectX::XMFLOAT3(vmd_motion.Location),
                 DirectX::XMFLOAT2((vmd_motion.Bezier[3] / 127.0f), (vmd_motion.Bezier[7] / 127.0f)),
                 DirectX::XMFLOAT2((vmd_motion.Bezier[11] / 127.0f), (vmd_motion.Bezier[15] / 127.0f))
             )
