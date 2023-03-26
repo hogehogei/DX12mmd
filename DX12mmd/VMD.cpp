@@ -1,10 +1,11 @@
 #include "VMD.hpp"
 
 #include <fstream>
+#include <algorithm>
 
 MotionKeyFrame::MotionKeyFrame(
     uint32_t frame_no, 
-    const DirectX::XMVECTOR& q, 
+    const DirectX::XMFLOAT4& q, 
     const DirectX::XMFLOAT3& offset,
     const DirectX::XMFLOAT2& p1, 
     const DirectX::XMFLOAT2& p2
@@ -12,7 +13,7 @@ MotionKeyFrame::MotionKeyFrame(
     :
     FrameNo(frame_no),
     Quaternion(q),
-    Offset(),
+    Offset(offset),
     RotateBezierP1(p1),
     RotateBezierP2(p2)
 {}
@@ -55,27 +56,26 @@ double VMDMotionTable::MotionInterpolater::GetYFromXOnBezier(double x, const Dir
     return (t * t * t) + (3 * t * t * r * p2.y) + (3 * t * r * r * p1.y);
 }
 
-DirectX::XMMATRIX VMDMotionTable::MotionInterpolater::Slerp(uint32_t frame_no) const
+void VMDMotionTable::MotionInterpolater::Slerp(
+    uint32_t frame_no, DirectX::XMMATRIX* rotate_mat_out, DirectX::XMVECTOR* offset_out ) const
 {
+    DirectX::XMVECTOR begin_offset = DirectX::XMLoadFloat3(&(Begin.Offset));
     if (Begin.FrameNo == End.FrameNo) {
-        return DirectX::XMMatrixRotationQuaternion(Begin.Quaternion);
+        *rotate_mat_out = DirectX::XMMatrixRotationQuaternion(DirectX::XMLoadFloat4(&Begin.Quaternion));
+        *offset_out = begin_offset;
     }
+    else {
+        float t = static_cast<float>(frame_no - Begin.FrameNo) / static_cast<float>(End.FrameNo - Begin.FrameNo);
+        t = GetYFromXOnBezier(t, Begin.RotateBezierP1, Begin.RotateBezierP2, 12);
 
-    float t = static_cast<float>(frame_no - Begin.FrameNo) / static_cast<float>(End.FrameNo - Begin.FrameNo);
-    t = GetYFromXOnBezier(t, Begin.RotateBezierP1, Begin.RotateBezierP2, 12);
+        DirectX::XMMATRIX rotation =
+            DirectX::XMMatrixRotationQuaternion(
+                DirectX::XMQuaternionSlerp(DirectX::XMLoadFloat4(&Begin.Quaternion), DirectX::XMLoadFloat4(&End.Quaternion), t)
+            );
 
-#if 0
-    DirectX::XMMATRIX rotation =
-        DirectX::XMMatrixRotationQuaternion(Begin.Quaternion) * (1.0f - t) +
-        DirectX::XMMatrixRotationQuaternion(End.Quaternion) * t;
-#endif
-
-    DirectX::XMMATRIX rotation =
-        DirectX::XMMatrixRotationQuaternion(
-            DirectX::XMQuaternionSlerp(Begin.Quaternion, End.Quaternion, t)
-        );
-
-    return rotation;
+        *rotate_mat_out = rotation;
+        *offset_out = DirectX::XMVectorLerp(begin_offset, DirectX::XMLoadFloat3(&(End.Offset)), t);
+    }
 }
 
 bool VMDMotionTable::Open(const std::filesystem::path& filename)
@@ -107,7 +107,7 @@ bool VMDMotionTable::Open(const std::filesystem::path& filename)
         m_MotionList[vmd_motion.BoneName].emplace_back(
             MotionKeyFrame(
                 vmd_motion.FrameNo, 
-                DirectX::XMLoadFloat4(&vmd_motion.Quaternion),
+                vmd_motion.Quaternion,
                 DirectX::XMFLOAT3(vmd_motion.Location),
                 DirectX::XMFLOAT2((vmd_motion.Bezier[3] / 127.0f), (vmd_motion.Bezier[7] / 127.0f)),
                 DirectX::XMFLOAT2((vmd_motion.Bezier[11] / 127.0f), (vmd_motion.Bezier[15] / 127.0f))
@@ -129,6 +129,62 @@ bool VMDMotionTable::Open(const std::filesystem::path& filename)
             }
         );
     }
+
+    // 表情データ
+    ifs.read(reinterpret_cast<char*>(&m_MorphDataNum), sizeof(m_MorphDataNum));
+    m_MorphList.resize(m_MorphDataNum);
+    ifs.read(reinterpret_cast<char*>(m_MorphList.data()), sizeof(VMDMorph) * m_MorphDataNum);
+
+    // カメラ
+    ifs.read(reinterpret_cast<char*>(&m_CameraDataNum), sizeof(m_CameraDataNum));
+    m_CameraList.resize(m_CameraDataNum);
+    ifs.read(reinterpret_cast<char*>(m_CameraList.data()), sizeof(VMDCamera) * m_CameraDataNum);
+
+    // 照明データ
+    ifs.read(reinterpret_cast<char*>(&m_LightDataNum), sizeof(m_LightDataNum));
+    m_LightList.resize(m_LightDataNum);
+    ifs.read(reinterpret_cast<char*>(m_LightList.data()), sizeof(VMDLight) * m_LightDataNum);
+
+    // セルフシャドウデータ
+    ifs.read(reinterpret_cast<char*>(&m_SelfShadowDataNum), sizeof(m_SelfShadowDataNum));
+    m_SelfShadowList.resize(m_SelfShadowDataNum);
+    ifs.read(reinterpret_cast<char*>(m_SelfShadowList.data()), sizeof(VMDSelfShadow) * m_SelfShadowDataNum);
+
+    // IK切り替えデータ
+    ifs.read(reinterpret_cast<char*>(&m_IKSwitchNum), sizeof(m_IKSwitchNum));
+    m_IKSwitchList.resize(m_IKSwitchNum);
+
+    for (auto& ik_enable : m_IKSwitchList) {
+        // キーフレーム番号読み込み
+        ifs.read(reinterpret_cast<char*>(&ik_enable.FrameNo), sizeof(ik_enable.FrameNo));
+
+        // 可視フラグ 使わないので読み飛ばす
+        uint8_t is_visible = 0;
+        ifs.read(reinterpret_cast<char*>(&is_visible), sizeof(is_visible));
+
+        // 対象ボーン数読み込み
+        uint32_t ik_bone_count = 0;
+        ifs.read(reinterpret_cast<char*>(&ik_bone_count), sizeof(ik_bone_count));
+        
+        // ON/OFF情報読み込み
+        for (int i = 0; i < ik_bone_count; ++i) {
+            char name[20];
+            ifs.read(reinterpret_cast<char*>(&name), sizeof(name));
+            std::string s(name);
+
+            uint8_t enable_flg = 0;
+            ifs.read(reinterpret_cast<char*>(&enable_flg), sizeof(enable_flg));
+            ik_enable.IkEnableTable[s] = enable_flg;
+        }
+    }
+
+    std::sort(
+        m_IKSwitchList.begin(), m_IKSwitchList.end(),
+        [](const VMDIKEnable& a, const VMDIKEnable& b) {
+            return a.FrameNo < b.FrameNo;
+        }
+    );
+
 
     return true;
 }
@@ -167,6 +223,19 @@ VMDMotionTable::NowMotionListPtr VMDMotionTable::GetNowMotionList(uint32_t frame
     }
 
     return motion_ptr;
+}
+
+VMDMotionTable::VMDIKEnableResult VMDMotionTable::GetIKEnable(uint32_t frame_no) const
+{
+    auto itr = std::find_if(
+        m_IKSwitchList.rbegin(),
+        m_IKSwitchList.rend(),
+        [frame_no](const VMDIKEnable& ike) {
+            return ike.FrameNo <= frame_no;
+        }
+    );
+
+    return itr == m_IKSwitchList.rend() ? std::nullopt : VMDIKEnableResult(*itr);
 }
 
 uint32_t VMDMotionTable::MaxKeyFrameNo() const

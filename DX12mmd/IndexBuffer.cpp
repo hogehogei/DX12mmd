@@ -76,7 +76,7 @@ bool IndexBuffer::CreateIndexBuffer(const uint16_t* indices, size_t count)
 
 bool IndexBuffer::CreateIndexBuffer(const PMDData& pmd)
 {
-    const uint16_t* ptr = reinterpret_cast<const uint16_t*>(pmd.IndexData());
+    const uint16_t* ptr = reinterpret_cast<const uint16_t*>(pmd.GetIndexData());
     return this->CreateIndexBuffer(ptr, pmd.IndexNum());
 }
 

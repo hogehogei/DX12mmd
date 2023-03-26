@@ -210,7 +210,7 @@ void GraphicEngine::FlipWindow()
     m_CmdList->SetDescriptorHeaps(1, &descriptor_heap);
 
     //auto materialH = m_Model.DescriptorHeapGPU();
-    const std::vector<Material>& materials = m_Model.GetPMDData().MaterialData();
+    const std::vector<Material>& materials = m_Model.GetPMDData().GetMaterialData();
     unsigned int idx_offset = 0;
     
     for (const auto& m : materials) {
@@ -314,9 +314,15 @@ bool GraphicEngine::InitializeDX12( HWND hwnd )
     //    return false;
     //}
 
+#if 0
     if (!m_Model.Create(&m_Resource, "Miku", "Model/初音ミク.pmd", "Model/motion.vmd")) {
         return false;
     }
+#else
+    if (!m_Model.Create(&m_Resource, "Miku", "Model/初音ミク.pmd", "Model/squat.vmd")) {
+        return false;
+    }
+#endif
 
     m_Matrix.World = XMMatrixIdentity();
     m_Matrix.View = XMMatrixIdentity();

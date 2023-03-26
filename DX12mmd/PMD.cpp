@@ -14,16 +14,20 @@
 BoneTree::BoneNode::BoneNode()
     :
     BoneIdx(0),
+    BoneType(0),
+    ParentBone(0),
+    IkParentBone(0),
     BoneStartPos(),
-    BoneEndPos(),
     m_Childlen()
 {}
 
 BoneTree::BoneNode::BoneNode(int idx, const PMDBone& bone)
     : 
     BoneIdx(idx),
+    BoneType(bone.BoneType),
+    ParentBone(bone.ParentBoneNo),
+    IkParentBone(bone.IkBoneNo),
     BoneStartPos(bone.Pos),
-    BoneEndPos(),
     m_Childlen()
 {}
 
@@ -70,6 +74,15 @@ BoneTree::BoneNodeResult BoneTree::GetBoneNode(const std::string& bonename) cons
     }
     return result->second;
 #endif
+}
+
+BoneTree::BoneNodeResult BoneTree::GetBoneNode(uint16_t idx) const
+{
+    if (idx >= m_BoneNodes.size()) {
+        return std::nullopt;
+    }
+
+    return m_BoneNodes[idx].Node;
 }
 
 std::string BoneTree::GetBoneNameFromIdx(uint16_t idx) const
@@ -132,6 +145,7 @@ PMDData::PMDData()
     m_MaterialBuff(),
     m_BoneNum(0),
     m_BonesBuff(),
+    m_KneeIndexes(),
     m_BoneTree()
 {}
 
@@ -180,6 +194,13 @@ bool PMDData::Open(const std::filesystem::path& filename)
     m_BonesBuff.resize(m_BoneNum);
     ifs.read(reinterpret_cast<char*>(m_BonesBuff.data()), BoneBuffSize());
     m_BoneTree.Create(m_BonesBuff);
+    // IKÇÃÉ{Å[ÉìÇæÇØãLò^
+    for (int idx = 0; idx < m_BonesBuff.size(); ++idx) {
+        const std::string& bone_name = m_BoneTree.GetBoneNameFromIdx(idx);
+        if (bone_name.find("Ç–Ç¥") != std::string::npos) {
+            m_KneeIndexes.emplace_back(idx);
+        }
+    }
 
     // IKì«Ç›çûÇ›
     ifs.read(reinterpret_cast<char*>(&m_IkNum), sizeof(m_IkNum));
@@ -205,7 +226,7 @@ uint64_t PMDData::VertexBuffSize() const
     return static_cast<uint64_t>(VertexNum()) * VertexStrideByte();
 }
 
-const uint8_t* PMDData::VertexData() const
+const uint8_t* PMDData::GetVertexData() const
 {
     return m_VerticesBuff.data();
 }
@@ -220,7 +241,7 @@ uint64_t PMDData::IndexBuffSize() const
     return static_cast<uint64_t>(IndexNum()) * sizeof(uint16_t);
 }
 
-const uint8_t* PMDData::IndexData() const
+const uint8_t* PMDData::GetIndexData() const
 {
     return m_IndicesBuff.data();
 }
@@ -234,7 +255,7 @@ uint64_t PMDData::MaterialBuffSize() const
     return static_cast<uint64_t>(MaterialNum()) * sizeof(PMDMaterial);
 }
 
-const std::vector<Material>& PMDData::MaterialData() const
+const std::vector<Material>& PMDData::GetMaterialData() const
 {
     return m_Materials;
 }
@@ -249,13 +270,34 @@ uint64_t PMDData::BoneBuffSize() const
     return static_cast<uint64_t>(BoneNum()) * sizeof(PMDBone);
 }
 
-BoneTree::BoneNodeResult PMDData::BoneFromName(const std::string& bonename) const
+BoneTree::BoneNodeResult PMDData::GetBoneFromName(const std::string& bonename) const
 {
-    auto bone = m_BoneTree.GetBoneNode(bonename);
-    if (!bone) {
-        return std::nullopt;
-    }
-    return bone.value();
+    return m_BoneTree.GetBoneNode(bonename);
+}
+
+BoneTree::BoneNodeResult PMDData::GetBoneFromIndex(uint16_t idx) const
+{
+    return m_BoneTree.GetBoneNode(idx);
+}
+
+const std::vector<uint32_t>& PMDData::GetBoneIndexes() const
+{
+    return m_KneeIndexes;
+}
+
+std::string PMDData::GetBoneName(uint16_t idx) const
+{
+    return m_BoneTree.GetBoneNameFromIdx(idx);
+}
+
+uint32_t PMDData::IKNum() const
+{
+    return m_IkNum;
+}
+
+const std::vector<PMDIK> PMDData::GetPMDIKData() const
+{
+    return m_PMDIkData;
 }
 
 
@@ -308,7 +350,16 @@ void PMDData::DebugPrintIKData()
         std::ostringstream oss;
         oss << "IKBoneNum = " << ik.BoneIdx
             << ":" << m_BoneTree.GetBoneNameFromIdx(ik.BoneIdx) << std::endl;
+        oss << "IKBoneTarget = " << ik.TargetIdx
+            << ":" << m_BoneTree.GetBoneNameFromIdx(ik.TargetIdx) << std::endl;
 
+        auto bone = m_BoneTree.GetBoneNode(ik.BoneIdx);
+        if (bone) {
+            uint32_t parent_bone_idx = bone.value().IkParentBone;
+            oss << "IKBoneParent = " << parent_bone_idx
+                << ":" << m_BoneTree.GetBoneNameFromIdx(parent_bone_idx) << std::endl;
+        }
+        
         for (auto& node : ik.NodeIdxes) {
             oss << "\tNodeBone = " << node
                 << ":" << m_BoneTree.GetBoneNameFromIdx(ik.BoneIdx) << std::endl;

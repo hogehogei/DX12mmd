@@ -87,9 +87,10 @@ public:
 
         uint32_t          BoneIdx;           // ボーンインデックス
         uint32_t          BoneType;          // ボーン種別
-        uint32_t          ikParentBone;      // IK親ボーン
+        uint32_t          ParentBone;        // 親ボーン
+        uint32_t          IkParentBone;      // IK親ボーン
         DirectX::XMFLOAT3 BoneStartPos;      // ボーン基準点（回転の中心）
-        DirectX::XMFLOAT3 BoneEndPos;        // ボーン先端点（実際のスキニングには影響しない）
+        //DirectX::XMFLOAT3 BoneEndPos;        // ボーン先端点（実際のスキニングには影響しない）
 
     private:
 
@@ -112,6 +113,7 @@ public:
 
     void Create(const std::vector<PMDBone>& bones);
     BoneNodeResult GetBoneNode(const std::string& bonename) const;
+    BoneNodeResult GetBoneNode(uint16_t idx) const;
     std::string GetBoneNameFromIdx(uint16_t idx) const;
 
 private:
@@ -120,7 +122,6 @@ private:
 
     std::vector<PMDBone>      m_RawBonesData;
     std::vector<NamedBone>    m_BoneNodes;
-    //std::map<std::string, BoneNode> m_BoneNodeTable;
 };
 
 struct PMDIK
@@ -128,7 +129,7 @@ struct PMDIK
 public:
 
     uint16_t BoneIdx;                    // IK対象のボーンを示す
-    uint16_t TargetIdx;                  // ターゲットに近づけるためのボーンのインデックス
+    uint16_t TargetIdx;                  // ターゲットに近づけるためのボーンのインデックス（IKするとき、つまんで目標に近づける末端ノード）
     uint16_t Iterations;                 // 試行回数
     float    Limit;                      // 1回あたりの回転制限
     std::vector<uint16_t> NodeIdxes;     // 間のノード番号
@@ -173,19 +174,25 @@ public:
     uint32_t VertexNum() const;             // 頂点数
     uint32_t VertexStrideByte() const;      // 1頂点当たりのバイト数
     uint64_t VertexBuffSize() const;        // 頂点バッファのサイズ数
-    const uint8_t* VertexData() const;
+    const uint8_t* GetVertexData() const;
 
     uint32_t IndexNum() const;
     uint64_t IndexBuffSize() const;
-    const uint8_t* IndexData() const;
+    const uint8_t* GetIndexData() const;
 
     uint32_t MaterialNum() const;
     uint64_t MaterialBuffSize() const;
-    const std::vector<Material>& MaterialData() const;
+    const std::vector<Material>& GetMaterialData() const;
 
     uint32_t BoneNum() const;
     uint64_t BoneBuffSize() const;
-    BoneTree::BoneNodeResult BoneFromName(const std::string& bonename) const;
+    BoneTree::BoneNodeResult GetBoneFromName(const std::string& bonename) const;
+    BoneTree::BoneNodeResult GetBoneFromIndex(uint16_t idx) const;
+    const std::vector<uint32_t>& GetBoneIndexes() const;
+    std::string GetBoneName(uint16_t idx) const;
+
+    uint32_t IKNum() const;
+    const std::vector<PMDIK> GetPMDIKData() const;
 
 private:
 
@@ -206,7 +213,8 @@ private:
 
     // ボーン管理用変数
     uint16_t  m_BoneNum;                                  // ボーン数
-    std::vector<PMDBone> m_BonesBuff;                     // ボーン保存用バッファ
+    std::vector<PMDBone>  m_BonesBuff;                    // ボーン保存用バッファ
+    std::vector<uint32_t> m_KneeIndexes;                  // ひざボーンのリスト(IKで使用)
     BoneTree  m_BoneTree;                                 // ボーン管理クラス
 
     // IK管理用変数

@@ -137,7 +137,7 @@ bool VertexBufferPMD::CreateVertexBuffer(const PMDData& pmd)
 {
     m_VertexNum = pmd.VertexNum();
     return VertexBufferBase::CreateVertexBuffer(
-        pmd.VertexData(),
+        pmd.GetVertexData(),
         pmd.VertexBuffSize(),
         pmd.VertexStrideByte()
     );
